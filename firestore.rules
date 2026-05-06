@@ -1,0 +1,254 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Target: { name: string, type: string, status: string, confidenceScore: number, createdAt: timestamp, updatedAt: timestamp, createdBy: string, userPersonaId: string }
+    // IntelligenceReport: { targetId: string, phase: number, content: string, source: string, timestamp: timestamp, confidence: string }
+    // EntityNode: { targetId: string, label: string, type: string, metadata: map }
+    // EntityEdge: { sourceId: string, targetId: string, relationship: string, confidence: number }
+    // ThreatAssessment: { targetId: string, capabilities: string, ttps: list, operationalScope: string, potentialTargets: list, timestamp: timestamp }
+    // MonitoringEvent: { targetId: string, type: string, description: string, severity: string, dataHash: string, timestamp: timestamp }
+    // UserPersona: { userId: string, name: string, avatar: string, backstory: string, stats: map, privacySettings: map, anonymityScore: map, level: number, xp: number }
+    // UserSettings: { activePersonaId: string }
+    // NarrativeEvent: { targetId: string, title: string, description: string, type: string, impact: string, choices: list, resolved: bool, timestamp: timestamp }
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.uid == "DhmPl4eWWOhZALvVs2qTiGAOpsP2" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+         (request.auth.token.email == "jeffreyclark198813@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidTarget(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 256 &&
+             data.type in ['domain', 'ip', 'persona', 'wallet'] &&
+             data.status in ['active', 'pending', 'archived'] &&
+             data.confidenceScore is number &&
+             data.createdBy == request.auth.uid &&
+             data.userPersonaId is string &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidReport(data) {
+      return data.targetId is string &&
+             data.phase is number && data.phase >= 0 && data.phase <= 5 &&
+             data.content is string && data.content.size() < 100000 &&
+             data.source is string &&
+             data.confidence in ['A', 'B', 'C', 'D', 'E', 'F', 'N/A'] &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidThreatAssessment(data) {
+      return data.targetId is string &&
+             data.capabilities is string &&
+             data.ttps is list &&
+             data.operationalScope is string &&
+             data.potentialTargets is list &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidMonitoringEvent(data) {
+      return data.targetId is string &&
+             data.type in ['wallet_activity', 'credential_leak', 'infra_change', 'forum_mention'] &&
+             data.description is string &&
+             data.severity in ['low', 'medium', 'high', 'critical'] &&
+             data.dataHash is string &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidUserPersona(data) {
+      return data.userId == request.auth.uid &&
+             data.name is string && data.name.size() > 0 &&
+             data.stats is map &&
+             data.privacySettings is map &&
+             data.anonymityScore is map &&
+             data.level is number &&
+             data.xp is number;
+    }
+
+    function isValidNarrativeEvent(data) {
+      return data.title is string &&
+             data.description is string &&
+             data.type in ['opportunity', 'threat', 'challenge'] &&
+             data.impact is string &&
+             data.choices is list &&
+             data.resolved is bool &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidPersonaOSINT(data) {
+      return data.targetId is string &&
+             data.personaId is string &&
+             data.socialProfiles is list &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidAdvancedPersonaProfile(data) {
+      return data.targetId is string &&
+             data.personaId is string &&
+             data.identifiers is map &&
+             data.stylometricAnalysis is map &&
+             data.behavioralSignature is map &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidAttributionReport(data) {
+      return data.targetId is string &&
+             data.summary is string &&
+             data.confidenceScore is number &&
+             data.timestamp is timestamp;
+    }
+
+    function isValidAIPersona(data) {
+      return data.userId is string &&
+             data.name is string &&
+             data.personality is string &&
+             data.tone is string;
+    }
+
+    function isValidSynthesizedOutput(data) {
+      return data.targetId is string &&
+             data.title is string &&
+             data.format in ['summary', 'report', 'comparison'] &&
+             data.content is string;
+    }
+
+    function isValidUserSettings(data) {
+      return data.keys().hasAll(['activePersonaId']) &&
+             data.activePersonaId is string;
+    }
+
+    function isValidAnomaly(data) {
+      return data.targetId is string &&
+             data.type in ['network', 'user_activity', 'financial'] &&
+             data.severity in ['low', 'medium', 'high', 'critical'] &&
+             data.description is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) || isAdmin();
+
+      match /personas/{personaId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidUserPersona(request.resource.data);
+      }
+
+      match /settings/main {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidUserSettings(request.resource.data);
+      }
+
+      match /ai_personas/{personaId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidAIPersona(request.resource.data);
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /targets/{targetId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isAdmin() || isValidTarget(request.resource.data));
+      allow update: if isAuthenticated() && (resource.data.createdBy == request.auth.uid || isAdmin()) && (isAdmin() || isValidTarget(request.resource.data));
+      allow delete: if isAdmin();
+
+      match /reports/{reportId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidReport(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /graph/nodes/{nodeId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /graph/edges/{edgeId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
+      }
+
+      match /threat_assessments/{assessmentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidThreatAssessment(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /monitoring_events/{eventId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidMonitoringEvent(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /narrative_events/{eventId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidNarrativeEvent(request.resource.data));
+        allow update: if isAuthenticated() && (isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved'])));
+        allow delete: if isAdmin();
+      }
+
+      match /persona_osint/{osintId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidPersonaOSINT(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /persona_profiles/{profileId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidAdvancedPersonaProfile(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /attribution_reports/{reportId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidAttributionReport(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /synthesized_outputs/{outputId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidSynthesizedOutput(request.resource.data));
+        allow update, delete: if isAdmin();
+      }
+
+      match /anomalies/{anomalyId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (isAdmin() || isValidAnomaly(request.resource.data));
+        allow update: if isAuthenticated() && (isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved'])));
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /global_events/{eventId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || (isAuthenticated() && isValidNarrativeEvent(request.resource.data));
+      allow update: if isAuthenticated() && (isAdmin() || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved'])));
+      allow delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Shadow Harvest CTI",
+  "description": "Advanced Cyber Threat Intelligence and OSINT Correlation Platform for digital infrastructure mapping and entity resolution.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
