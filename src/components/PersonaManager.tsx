@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AIPersona, addAIPersona, deleteAIPersona } from '../services/dbService';
+import { AIPersona, addAIPersona, deleteAIPersona, unlockAchievement, incrementUserStat } from '../services/dbService';
 import { User, Plus, Trash2, Shield, Brain, MessageSquare, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -32,6 +32,9 @@ export const PersonaManager: React.FC<PersonaManagerProps> = ({ userId, personas
       tone: newPersona.tone,
       isDefault: newPersona.isDefault || false
     } as any);
+    
+    incrementUserStat(userId, 'actionsTaken');
+    unlockAchievement(userId, 'persona_mimic');
     
     setIsAdding(false);
     setNewPersona({

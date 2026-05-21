@@ -66,11 +66,11 @@ export const ThreatAssessmentView: React.FC<ThreatAssessmentViewProps> = ({ asse
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {latest.ttps.map((ttp, i) => (
-                <div key={i} className="bg-[#1a1a1a] border border-[#333] p-4 rounded space-y-2">
+                <div key={i} className="bg-[#1a1a1a] border border-[#333] p-4 rounded space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
-                      <span className="text-[10px] font-mono text-blue-300 block">{ttp.id}</span>
-                      <span className="text-xs font-bold text-white uppercase">{ttp.name}</span>
+                      <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Tactic</span>
+                      <span className="text-[11px] font-mono text-blue-300 block">{ttp.tactic}</span>
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[9px] text-gray-500 uppercase">Confidence</span>
@@ -81,7 +81,15 @@ export const ThreatAssessmentView: React.FC<ThreatAssessmentViewProps> = ({ asse
                       </span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-gray-400 leading-relaxed italic">
+                  <div className="pt-2 border-t border-[#333]">
+                    <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Technique</span>
+                    <span className="text-[11px] font-bold text-white uppercase block">{ttp.technique?.id}: {ttp.technique?.name}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Procedure</span>
+                    <p className="text-[10px] text-gray-400 font-mono italic block">{ttp.procedure}</p>
+                  </div>
+                  <p className="text-[10px] text-gray-300 border-l-2 border-blue-500 pl-2 leading-relaxed">
                     {ttp.explanation}
                   </p>
                 </div>

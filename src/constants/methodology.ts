@@ -608,5 +608,38 @@ export const METHODOLOGY = [
         relevance: "Transforms unstructured, chaotic intelligence lakes into highly analytical, definitively correlated operational networks."
       }
     ]
+  },
+  {
+    topic: "Phase 6: Ethical Risk Assessment Methodology",
+    sections: [
+      {
+        title: "Compliance Risk Evaluation",
+        definition: "The analysis of the potential ethical implications and risks associated with gathered intelligence and operational methodologies.",
+        characteristics: "Evaluation of collection methods against privacy boundaries, regulatory standards, and OPSEC constraints.",
+        instances: [
+          "Identifying the risk of unauthorized PII exposure during surface web scraping.",
+          "Determining if data collection violates Terms of Service or established ethical boundaries."
+        ],
+        relevance: "Ensures responsible data handling and safeguards organizational credibility."
+      },
+      {
+        title: "Boundary Encroachment Detection",
+        definition: "The methodical identification of operational actions that border or cross predefined analytical and ethical constraints.",
+        characteristics: "Pattern matching against compliance frameworks, dynamic constraint evaluation.",
+        instances: [
+          "Flagging deep web indexing tools when traversing unauthenticated internal systems."
+        ],
+        relevance: "Prevents misuse of intelligence platform capabilities and defines strict procedural guardrails."
+      },
+      {
+        title: "Ethical Confidence Scoring",
+        definition: "Assigning an aggregate metric representing the level of adherence to ethical and legal constraints throughout the intelligence lifecycle.",
+        characteristics: "A scale from 0 to 100 assessing the integrity of the data provenance and the methods of retrieval.",
+        instances: [
+          "Providing a confidence score of 95 for structured API querying versus 30 for unauthorized directory enumeration."
+        ],
+        relevance: "Quantifies the risk level of operations, producing a 'Proceed', 'Monitor', or 'Suspend' recommendation."
+      }
+    ]
   }
 ];

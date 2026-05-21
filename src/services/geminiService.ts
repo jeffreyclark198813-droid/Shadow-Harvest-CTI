@@ -306,8 +306,9 @@ export const generateThreatAssessment = async (intelligence: string, persona?: A
       model: "gemini-3-flash-preview",
       contents: `Perform a comprehensive Threat Assessment based on the following intelligence:
       ${intelligence}
-      Evaluate capabilities, map behavioral patterns to MITRE ATT&CK TTPs, and estimate operational scope and potential targets.
-      For each TTP mapping, provide a confidence score (0-1) and a brief explanation of the alignment.
+      Evaluate capabilities, map behavioral patterns to the MITRE ATT&CK framework, and estimate operational scope and potential targets.
+      Categorize findings into specific Tactics, Techniques, and Procedures (TTPs).
+      For each mapping, provide an explanation and a confidence score (0-1).
       Return the result as a JSON object.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
@@ -321,12 +322,20 @@ export const generateThreatAssessment = async (intelligence: string, persona?: A
               items: { 
                 type: Type.OBJECT,
                 properties: {
-                  id: { type: Type.STRING, description: "MITRE ATT&CK ID (e.g., T1566)" },
-                  name: { type: Type.STRING },
+                  tactic: { type: Type.STRING, description: "MITRE ATT&CK Tactic (e.g., Initial Access)" },
+                  technique: {
+                    type: Type.OBJECT,
+                    properties: {
+                      id: { type: Type.STRING, description: "MITRE ATT&CK Technique ID (e.g., T1566)" },
+                      name: { type: Type.STRING, description: "Technique Name" }
+                    },
+                    required: ["id", "name"]
+                  },
+                  procedure: { type: Type.STRING, description: "Specific observed behavior or procedure" },
                   confidence: { type: Type.NUMBER },
                   explanation: { type: Type.STRING }
                 },
-                required: ["id", "name", "confidence", "explanation"]
+                required: ["tactic", "technique", "procedure", "confidence", "explanation"]
               } 
             },
             operationalScope: { type: Type.STRING },
@@ -845,6 +854,63 @@ export const traceFinancialFlows = async (walletData: string, persona?: AIPerson
         }
       }
     });
+    return parseJSONFromText(response.text || "{}");
+  });
+};
+
+export const evaluateEthicalRisk = async (targetName: string, operationalContext: string, persona?: AIPersona): Promise<any> => {
+  return withRetry(async () => {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `You are acting as an objective Ethics and Compliance AI.
+      Analyze the following operational intelligence context gathered on target "${targetName}" for Phase 6 - Ethical Risk Assessment.
+      Generate a detailed Ethical Risk Assessment evaluating the potential ethical implications and risks associated with the intelligence gathered and methodologies employed.
+      Define boundaries and guidelines to prevent misuse and ensure responsible data handling.
+      
+      Return EXCLUSIVELY a JSON object structured as follows:
+      {
+        "complianceScore": <number 0-100>,
+        "riskLevel": "Low" | "Moderate" | "High" | "Critical",
+        "summary": "string",
+        "identifiedRisks": [
+          {
+            "category": "string",
+            "description": "string",
+            "severity": "string",
+            "mitigation": "string"
+          }
+        ],
+        "boundaries": [ "string" ],
+        "recommendation": "Proceed" | "Monitor" | "Suspend"
+      }
+      
+      Operational Context:
+      ${operationalContext}`,
+      config: {
+        systemInstruction: getSystemInstruction(persona),
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            complianceScore: { type: Type.NUMBER },
+            riskLevel: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            identifiedRisks: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: { category: { type: Type.STRING }, description: { type: Type.STRING }, severity: { type: Type.STRING }, mitigation: { type: Type.STRING } },
+                required: ["category", "description", "severity", "mitigation"]
+              }
+            },
+            boundaries: { type: Type.ARRAY, items: { type: Type.STRING } },
+            recommendation: { type: Type.STRING }
+          },
+          required: ["complianceScore", "riskLevel", "summary", "identifiedRisks", "boundaries", "recommendation"]
+        }
+      }
+    });
+
     return parseJSONFromText(response.text || "{}");
   });
 };

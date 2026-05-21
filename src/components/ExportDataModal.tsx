@@ -111,10 +111,16 @@ export const ExportDataModal: React.FC<ExportDataModalProps> = ({
           content = `Target ID,Name,Type,Posture,Intelligence Count,Assessment Count,Export Date\n`;
           content += `"${summaryData.targetId}","${summaryData.targetName}","${summaryData.targetType}","${summaryData.posture}",${summaryData.intelligenceCount},${summaryData.assessmentCount},"${summaryData.exportDate}"\n`;
         } else {
-          content = `Report ID,Source,Timestamp,ContentSnippet\n`;
+          content = `Data Type,ID,Source/Tactic,Timestamp/Technique,Content/Procedure\n`;
           filteredReports.forEach(r => {
-            const cleanContent = r.content.replace(/"/g, '""').substring(0, 100) + '...';
-            content += `"${r.id}","${r.source}","${r.timestamp}","${cleanContent}"\n`;
+            const cleanContent = r.content.replace(/"/g, '""');
+            content += `"IntelligenceReport","${r.id}","${r.source}","${r.timestamp}","${cleanContent}"\n`;
+          });
+          assessments.forEach(a => {
+            a.ttps.forEach((ttp, idx) => {
+              const cleanProcedure = ttp.procedure.replace(/"/g, '""');
+              content += `"ThreatAssessment_TTP","${a.id}_${idx}","${ttp.tactic}","${ttp.technique?.id}: ${ttp.technique?.name}","${cleanProcedure}"\n`;
+            });
           });
         }
       }

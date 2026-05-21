@@ -81,7 +81,7 @@ export const PersonaOSINTView: React.FC<PersonaOSINTViewProps> = ({ osintData, o
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {osint.socialProfiles.map((profile, i) => (
+                {(osint.socialProfiles || []).map((profile, i) => (
                   <div key={i} className="hardware-surface p-5 space-y-4 relative overflow-hidden group hover:border-harvest-accent/30 transition-colors">
                     <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                        <Globe size={64} className="text-harvest-accent" />
@@ -117,7 +117,7 @@ export const PersonaOSINTView: React.FC<PersonaOSINTViewProps> = ({ osintData, o
                            <Code2 size={12} /> Tech Substrate
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {profile.technicalSignatures.map((sig, k) => (
+                          {(profile.technicalSignatures || []).map((sig, k) => (
                              <span key={k} className="text-[9px] px-2 py-1 bg-harvest-warning/10 text-harvest-warning border border-harvest-warning/20 rounded font-mono uppercase">
                                {sig}
                              </span>
@@ -131,12 +131,12 @@ export const PersonaOSINTView: React.FC<PersonaOSINTViewProps> = ({ osintData, o
                          <MessageSquare size={12} /> Live telemetry
                       </div>
                       <div className="space-y-2">
-                        {profile.recentPosts.map((post, j) => (
+                        {(profile.recentPosts || []).map((post, j) => (
                           <div key={j} className="bg-white/5 p-3 rounded-lg border-l-2 border-harvest-accent/50 text-[11px] text-gray-400 font-mono leading-relaxed">
                             {post}
                           </div>
                         ))}
-                        {profile.recentPosts.length === 0 && (
+                        {(!profile.recentPosts || profile.recentPosts.length === 0) && (
                           <div className="text-[10px] text-gray-600 italic p-2">No telemetry captured.</div>
                         )}
                       </div>

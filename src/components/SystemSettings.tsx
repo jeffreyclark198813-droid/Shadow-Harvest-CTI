@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, saveUserSettings } from '../services/dbService';
 import { auth } from '../firebase';
-import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe } from 'lucide-react';
+import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface SystemSettingsProps {
@@ -11,7 +11,7 @@ interface SystemSettingsProps {
 export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
   const [role, setRole] = useState<'admin' | 'moderator' | 'user'>(settings?.role || 'admin');
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'rbac' | 'kafka' | 'integrations'>('rbac');
+  const [activeTab, setActiveTab] = useState<'rbac' | 'kafka' | 'integrations' | 'anonymity'>('rbac');
 
   const handleSaveRole = async () => {
     if (!auth.currentUser || !settings) return;
@@ -50,6 +50,12 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
         >
           Threat Feeds (API)
         </button>
+        <button
+          onClick={() => setActiveTab('anonymity')}
+          className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'anonymity' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
+        >
+          Anonymity & OPSEC
+        </button>
       </div>
 
       {activeTab === 'rbac' && (
@@ -59,7 +65,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
             Role-Based Access Control (RBAC)
           </h3>
           <p className="text-[11px] font-mono text-gray-400">
-            For demonstration purposes, you can change your active role below to test permissions across the application.
+            Define local operator clearance and authorization levels for operational deployment.
           </p>
 
           <div className="space-y-4">
@@ -222,7 +228,52 @@ resource "confluent_kafka_topic" "raw_events" {
                   <input type="password" placeholder="Enter MISP Auth Key..." className="w-full bg-harvest-bg border border-harvest-border rounded p-2 text-xs font-mono text-white focus:border-harvest-accent outline-none" />
                 </div>
               </div>
-              <button className="text-[10px] uppercase font-bold text-harvest-accent hover:text-white transition-colors">Test Connection</button>
+              <button className="text-[10px] uppercase font-bold text-harvest-accent hover:text-white transition-colors">Test Connection</button>       
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'anonymity' && (
+        <div className="hardware-surface p-6 space-y-6">
+          <h3 className="mono-label flex items-center gap-2 text-white">
+            <EyeOff size={14} className="text-[#00ffcc]"/>
+            Anonymity & OPSEC Controls
+          </h3>
+          <p className="text-[11px] font-mono text-gray-400">
+            Advanced operational security settings to mask traffic and device fingerprints.
+          </p>
+
+          <div className="space-y-6">
+            <div className="p-4 rounded border bg-black/50 border-white/5 flex items-start justify-between">
+              <div>
+                <h4 className="text-[10px] font-bold text-white uppercase tracking-widest">TOR Network Routing</h4>
+                <p className="text-[10px] text-gray-500 font-mono mt-1 max-w-sm">Route all external telemetry, OSINT gathering, and threat feed polling through the TOR network proxy. Increases latency but masks origin IP.</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" defaultChecked />
+                <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#00ffcc]"></div>
+              </label>
+            </div>
+
+            <div className="p-4 rounded border bg-black/50 border-white/5 flex items-start justify-between">
+              <div>
+                <h4 className="text-[10px] font-bold text-white uppercase tracking-widest">Anti-Fingerprinting Engine</h4>
+                <p className="text-[10px] text-gray-500 font-mono mt-1 max-w-sm">Counteract browser fingerprinting by randomizing canvas hash, WebGL vendors, audio contexts, and user-agent strings on outbound requests.</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" defaultChecked={false} />
+                <div className="w-9 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#00ffcc]"></div>
+              </label>
+            </div>
+            
+            <div className="p-4 rounded border bg-red-900/10 border-red-500/20">
+              <div className="flex items-start gap-2">
+                <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0" />
+                <p className="text-[10px] font-mono text-gray-400">
+                  <span className="text-red-500 font-bold">WARNING:</span> Enabling TOR routing may trigger rate-limiting or captchas on certain target APIs. Ensure that strict proxy rotation is active if conducting automated OSINT scraping.
+                </p>
+              </div>
             </div>
           </div>
         </div>

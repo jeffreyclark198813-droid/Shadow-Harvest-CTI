@@ -25,7 +25,10 @@ export const CharacterCreation: React.FC<CharacterCreationProps> = ({ onComplete
       torRouting: false,
       dataSharingLevel: 'minimal',
       encryptedStorage: true,
-      metadataScrubbing: false
+      metadataScrubbing: false,
+      advancedFingerprintMasking: false,
+      ephemeralChannels: false,
+      secureDataStorageProtocols: true
     },
     level: 1,
     xp: 0

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ChevronLeft, Shield, Search, Database, Share2, 
   FileText, Loader2, CheckCircle2, Image as ImageIcon, Activity,
-  Zap, Radio, Globe, User, Cpu, BarChart3, EyeOff, GitMerge, Code2, Bitcoin, Download
+  Zap, Radio, Globe, User, Cpu, BarChart3, EyeOff, GitMerge, Code2, Bitcoin, Download, Network, Scale
 } from 'lucide-react';
 import { 
   Target, IntelligenceReport, ThreatAssessment, MonitoringEvent, NarrativeEvent, PersonaOSINT,
@@ -14,7 +14,8 @@ import {
   subscribeToPersonaOSINT, addPersonaOSINT,
   subscribeToAdvancedPersonaProfiles, addAdvancedPersonaProfile,
   subscribeToAttributionReports, addAttributionReport,
-  subscribeToAIPersonas, subscribeToSynthesizedOutputs, subscribeToAnomalies
+  subscribeToAIPersonas, subscribeToSynthesizedOutputs, subscribeToAnomalies,
+  incrementUserStat, unlockAchievement
 } from '../services/dbService';
 import { 
   analyzeSurfaceWeb, analyzeDeepWeb, resolveEntities, analyzeImageArtifact,
@@ -36,11 +37,14 @@ import { PersonaManager } from './PersonaManager';
 import { IntelligenceSynthesizer } from './IntelligenceSynthesizer';
 import { VisualizationDashboard } from './VisualizationDashboard';
 import { AnomalyDetectionView } from './AnomalyDetectionView';
+import { EthicalRiskAssessmentView } from './EthicalRiskAssessmentView';
 import { auth, db, doc, onSnapshot, updateDoc } from '../firebase';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserSettings } from '../services/dbService';
 import { ExportDataModal } from './ExportDataModal';
+import { HelpTooltip } from './HelpTooltip';
+import { notify } from './Toaster';
 
 interface TargetViewProps {
   activePersona: UserPersona;
@@ -67,7 +71,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
   const [generatingEvent, setGeneratingEvent] = useState(false);
   const [graphData, setGraphData] = useState<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] });
   const [correlationData, setCorrelationData] = useState<CorrelationData | undefined>(undefined);
-  const [activeTab, setActiveTab] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies'>('reports');
+  const [activeTab, setActiveTab] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics'>('reports');
 
   const selectedPersona = personas.find(p => p.id === selectedPersonaId);
 
@@ -81,6 +85,10 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
   useEffect(() => {
     if (!id) return;
     
+    if (auth.currentUser) {
+      incrementUserStat(auth.currentUser.uid, 'targetsViewed');
+    }
+
     const unsubTarget = onSnapshot(doc(db, 'targets', id), (doc) => {
       if (doc.exists()) {
         setTarget({ id: doc.id, ...doc.data() } as Target);
@@ -132,6 +140,11 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         source: 'SWI',
         confidence: 'B'
       });
+      
+      if (auth.currentUser) {
+        incrementUserStat(auth.currentUser.uid, 'actionsTaken');
+        unlockAchievement(auth.currentUser.uid, 'intel_gatherer');
+      }
 
       await delay(2000);
 
@@ -177,8 +190,11 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         updatedAt: new Date()
       });
 
+      notify({ type: 'success', title: 'Analysis Complete', message: 'Intelligence gathering and graph resolution finished.' });
+
     } catch (error: any) {
       console.error("Analysis failed:", error);
+      notify({ type: 'error', title: 'Analysis Failed', message: error?.message || 'An unexpected error occurred.' });
       
       const errorString = JSON.stringify(error).toLowerCase();
       const isRateLimit = 
@@ -214,6 +230,10 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         targetId: id,
         ...assessment
       });
+      if (auth.currentUser) {
+        incrementUserStat(auth.currentUser.uid, 'actionsTaken');
+        unlockAchievement(auth.currentUser.uid, 'threat_hunter');
+      }
     } catch (error) {
       console.error("Threat assessment failed:", error);
     } finally {
@@ -222,7 +242,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
   };
 
   const runMonitoringCycle = async () => {
-    if (settings?.role === 'user') return alert("Users cannot simulate events.");
+    if (settings?.role === 'user') return alert("Users cannot inject live telemetry events.");
     if (!id || !target) return;
     setAnalyzing(true);
     try {
@@ -400,28 +420,109 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
     reader.readAsDataURL(file);
   };
 
-  const exportGraphData = () => {
-    const data = {
-      nodes: graphData.nodes.map(n => ({ 
-        id: n.id, 
-        label: n.label, 
-        type: n.type,
-        metadata: n.metadata || {}
-      })),
-      edges: graphData.edges.map(e => ({ 
-        source: e.source, 
-        target: e.target, 
-        relationship: e.relationship,
-        confidence: e.confidence || 1.0
-      }))
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `target_${id}_graph.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const [exportFormat, setExportFormat] = useState<'json' | 'neo4j' | 'maltego'>('json');
+
+  const exportGraphData = (format: 'json' | 'neo4j' | 'maltego' = 'json') => {
+    if (format === 'json') {
+      const data = {
+        nodes: graphData.nodes.map(n => ({ 
+          id: n.id, 
+          label: n.label, 
+          type: n.type,
+          metadata: n.metadata || {}
+        })),
+        edges: graphData.edges.map(e => ({ 
+          source: typeof e.source === 'object' ? (e.source as any).id : e.source, 
+          target: typeof e.target === 'object' ? (e.target as any).id : e.target, 
+          relationship: e.relationship,
+          confidence: e.confidence || 1.0
+        }))
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `target_${id}_graph.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === 'neo4j') {
+      let cypher = '// Neo4j Cypher Export\n\n';
+      graphData.nodes.forEach(n => {
+        cypher += `CREATE (n_${n.id.replace(/[^a-zA-Z0-9]/g, '')}:Entity {id: "${n.id}", label: "${n.label}", type: "${n.type}"});\n`;
+      });
+      cypher += '\n';
+      graphData.edges.forEach((e, i) => {
+        const srcId = typeof e.source === 'object' ? (e.source as any).id : e.source;
+        const tgtId = typeof e.target === 'object' ? (e.target as any).id : e.target;
+        cypher += `MATCH (a:Entity {id: "${srcId}"}), (b:Entity {id: "${tgtId}"}) CREATE (a)-[:${e.relationship.replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase()}]->(b);\n`;
+      });
+      const blob = new Blob([cypher], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `target_${id}_neo4j_export.cypher`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (format === 'maltego') {
+      let csv = 'Source,SourceType,Target,TargetType,Relationship\n';
+      graphData.edges.forEach(e => {
+        const srcId = typeof e.source === 'object' ? (e.source as any).id : e.source;
+        const tgtId = typeof e.target === 'object' ? (e.target as any).id : e.target;
+        const src = graphData.nodes.find(n => n.id === srcId);
+        const tgt = graphData.nodes.find(n => n.id === tgtId);
+        if (src && tgt) {
+          csv += `"${src.label}","${src.type}","${tgt.label}","${tgt.type}","${e.relationship}"\n`;
+        }
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `target_${id}_maltego_export.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    notify({ type: 'info', title: 'Export Generated', message: `Graph state exported successfully as ${format.toUpperCase()}.` });
+  };
+
+  const bootstrapTelemetryNetwork = () => {
+    const baselineNodes = [
+      { id: 'node_1', label: '192.168.1.100', type: 'ip', metadata: { confidence: 0.95, source: 'Network Sensor' } },
+      { id: 'node_2', label: '10.0.0.5', type: 'ip', metadata: { confidence: 0.9, source: 'Network Sensor' } },
+      { id: 'node_3', label: 'admin_user', type: 'persona', metadata: { confidence: 0.85, source: 'SOCMINT' } },
+      { id: 'node_4', label: '0x123...abc', type: 'wallet', metadata: { confidence: 0.99, source: 'Ledger Analysis' } },
+      { id: 'node_5', label: 'evil-corp.com', type: 'domain', metadata: { confidence: 0.8, source: 'DNS Log' } },
+      { id: 'node_6', label: 'Tx_789xyz', type: 'transaction', metadata: { confidence: 0.99, source: 'Ledger Analysis' } },
+      { id: 'node_7', label: 'malware.exe', type: 'code_artifact', metadata: { confidence: 0.95, source: 'Endpoint Agent' } },
+      { id: 'node_8', label: 'John Doe', type: 'persona', metadata: { confidence: 0.7, source: 'OSINT' } },
+      { id: 'node_9', label: 'john.doe@email.com', type: 'email', metadata: { confidence: 0.85, source: 'OSINT' } },
+      { id: 'node_10', label: '172.16.0.1', type: 'ip', metadata: { confidence: 0.9, source: 'Network Sensor' } },
+      { id: 'node_11', label: 'C2_Server_Alpha', type: 'metadata_artifact', metadata: { confidence: 0.85, source: 'Threat Intel' } }
+    ];
+    
+    const baselineEdges = [
+      { source: 'node_1', target: 'node_5', relationship: 'RESOLVES_TO', confidence: 0.9, dataSource: 'DNS Log' },
+      { source: 'node_3', target: 'node_1', relationship: 'OPERATES_FROM', confidence: 0.85, dataSource: 'Auth Log' },
+      { source: 'node_3', target: 'node_4', relationship: 'OWNS', confidence: 0.95, dataSource: 'OSINT' },
+      { source: 'node_4', target: 'node_6', relationship: 'INITIATED', confidence: 0.99, dataSource: 'Ledger Analysis' },
+      { source: 'node_6', target: 'node_5', relationship: 'FUNDS', confidence: 0.95, dataSource: 'Ledger Analysis' },
+      { source: 'node_2', target: 'node_7', relationship: 'HOSTS', confidence: 0.9, dataSource: 'EDR' },
+      { source: 'node_5', target: 'node_7', relationship: 'DISTRIBUTES', confidence: 0.8, dataSource: 'Threat Intel' },
+      { source: 'node_8', target: 'node_9', relationship: 'USES', confidence: 0.9, dataSource: 'OSINT' },
+      { source: 'node_9', target: 'node_3', relationship: 'ALIAS', confidence: 0.75, dataSource: 'Correlation Engine' },
+      { source: 'node_10', target: 'node_2', relationship: 'COMMUNICATES_WITH', confidence: 0.85, dataSource: 'NetFlow' },
+      { source: 'node_5', target: 'node_11', relationship: 'HOSTED_BY', confidence: 0.8, dataSource: 'Threat Intel' }
+    ];
+
+    setGraphData(prev => ({
+      nodes: [...prev.nodes, ...baselineNodes.filter(n => !prev.nodes.find(pn => pn.id === n.id))],
+      edges: [...prev.edges, ...baselineEdges]
+    }));
+    notify({ type: 'success', title: 'Telemetry Bootstrapped', message: 'Baseline network entities and relationships synchronized.' });
+    if (auth.currentUser) {
+      incrementUserStat(auth.currentUser.uid, 'actionsTaken');
+      unlockAchievement(auth.currentUser.uid, 'graph_weaver');
+    }
   };
 
   if (!target) return null;
@@ -519,6 +620,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
               { id: 'synthesis', label: 'Synthesis', icon: Cpu },
               { id: 'visuals', label: 'Metrics', icon: BarChart3 },
               { id: 'anomalies', label: 'Alerts', icon: EyeOff },
+              { id: 'ethics', label: 'Ethics', icon: Scale },
             ].map((tab) => (
               <button 
                 key={tab.id}
@@ -550,22 +652,28 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                       <button 
                         onClick={triggerNarrativeEvent}
                         disabled={generatingEvent}
-                        className="hardware-surface p-4 flex items-center justify-between hover:bg-harvest-accent/5 transition-colors group"
+                        className="hardware-surface p-4 flex items-center justify-between hover:bg-harvest-accent/5 transition-colors group relative"
                       >
                          <div className="flex items-center gap-3">
                            <Zap size={20} className="text-purple-500 group-hover:scale-110 transition-transform" />
                            <div className="text-left">
-                             <p className="text-[10px] font-bold text-white uppercase">Trigger Neural Scan</p>
+                             <div className="flex items-center gap-2">
+                               <p className="text-[10px] font-bold text-white uppercase">Trigger Neural Scan</p>
+                               <HelpTooltip content="Initiates a polling cycle against external threat feeds to identify new events." />
+                             </div>
                              <p className="text-[8px] text-gray-600 uppercase">Trigger real-time telemetry polling</p>
                            </div>
                          </div>
                          {generatingEvent && <Loader2 size={16} className="animate-spin text-purple-500" />}
                       </button>
-                      <label className="hardware-surface p-4 flex items-center justify-between hover:bg-harvest-accent/5 transition-colors group cursor-pointer">
+                      <label className="hardware-surface p-4 flex items-center justify-between hover:bg-harvest-accent/5 transition-colors group cursor-pointer relative">
                          <div className="flex items-center gap-3">
                            <ImageIcon size={20} className="text-harvest-info group-hover:scale-110 transition-transform" />
                            <div className="text-left">
-                             <p className="text-[10px] font-bold text-white uppercase">Upload Artifact</p>
+                             <div className="flex items-center gap-2">
+                               <p className="text-[10px] font-bold text-white uppercase">Upload Artifact</p>
+                               <HelpTooltip content="Upload an image artifact (e.g. malware screenshot, map) to be analyzed by visual ML models." />
+                             </div>
                              <p className="text-[8px] text-gray-600 uppercase">Input image/data for analysis</p>
                            </div>
                          </div>
@@ -611,13 +719,29 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                   </div>
                 )}
                 {activeTab === 'graph' && (
-                  <Graph 
-                    nodes={graphData.nodes} 
-                    links={graphData.edges} 
-                    onRunCorrelation={handleRunCorrelation}
-                    correlationData={correlationData}
-                    isAnalyzing={analyzing}
-                  />
+                  <div className="flex flex-col h-full relative">
+                    <Graph 
+                      nodes={graphData.nodes} 
+                      links={graphData.edges} 
+                      onRunCorrelation={handleRunCorrelation}
+                      correlationData={correlationData}
+                      isAnalyzing={analyzing}
+                    />
+                    {graphData.nodes.length === 0 && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 pointer-events-none z-10">
+                        <Database size={32} className="text-gray-600 mb-4" />
+                        <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">No Entity Topologies Detected</h4>
+                        <p className="text-[10px] text-gray-500 font-mono mb-6 max-w-sm text-center">To initiate graph modeling, run an intelligence assessment or load test telemetry data.</p>
+                        <button 
+                          onClick={bootstrapTelemetryNetwork}
+                          className="pointer-events-auto hardware-button px-6 py-2 flex items-center gap-2 bg-harvest-accent/10 hover:bg-harvest-accent/20 border-harvest-accent"
+                        >
+                          <Network size={14} className="text-harvest-accent" />
+                          <span className="text-[10px] font-bold text-white uppercase tracking-widest">Bootstrap Active Telemetry</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {activeTab === 'resolve' && (
                   <div className="max-w-6xl mx-auto">
@@ -679,6 +803,11 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                     <AnomalyDetectionView targetId={id || ''} targetName={target.name} anomalies={anomalies} intelligenceContext={reports.map(r => r.content).join('\n\n')} persona={selectedPersona} />
                   </div>
                 )}
+                {activeTab === 'ethics' && (
+                  <div className="max-w-6xl mx-auto">
+                    <EthicalRiskAssessmentView targetId={id || ''} targetName={target.name} reports={reports} />
+                  </div>
+                )}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -737,15 +866,26 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
               )}
             </div>
 
-            <div className="pt-8 border-t border-harvest-border">
-              <button 
-                onClick={exportGraphData}
-                disabled={graphData.nodes.length === 0}
-                className="w-full hardware-surface !bg-transparent !py-3 flex items-center justify-center gap-2 hover:bg-white/5 transition-colors group"
-              >
-                <Share2 size={14} className="text-gray-500 group-hover:text-harvest-accent" />
-                <span className="text-[10px] font-bold uppercase tracking-widest">Mirror Graph State</span>
-              </button>
+            <div className="pt-8 border-t border-harvest-border space-y-2">
+              <div className="flex gap-2">
+                <select 
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value as any)}
+                  className="bg-black/50 border border-white/10 text-[9px] uppercase font-bold text-gray-400 p-2 outline-none focus:border-harvest-accent rounded"
+                >
+                  <option value="json">JSON</option>
+                  <option value="neo4j">Neo4j Cypher</option>
+                  <option value="maltego">Maltego CSV</option>
+                </select>
+                <button 
+                  onClick={() => exportGraphData(exportFormat)}
+                  disabled={graphData.nodes.length === 0}
+                  className="flex-1 hardware-surface !bg-transparent !py-2 flex items-center justify-center gap-2 hover:bg-white/5 transition-colors group"
+                >
+                  <Share2 size={12} className="text-gray-500 group-hover:text-harvest-accent" />
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-gray-300">Mirror State</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AdvancedPersonaProfile } from '../services/dbService';
-import { User, Fingerprint, Wallet, Mail, PenTool, Clock, ShieldAlert, Brain } from 'lucide-react';
+import { User, Fingerprint, Wallet, Mail, PenTool, Clock, ShieldAlert, Brain, EyeOff, Eye } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface PersonaProfilingViewProps {
@@ -10,7 +10,47 @@ interface PersonaProfilingViewProps {
   personas: { id: string, label: string }[];
 }
 
+// Utility to create consistent pseudonyms
+const simpleHash = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).substring(0, 6);
+};
+
 export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({ profiles, onProfile, loading, personas }) => {
+  const [anonymizePII, setAnonymizePII] = useState(true);
+
+  const maskIdentifier = (type: 'username' | 'email' | 'wallet' | 'pgp', value: string) => {
+    if (!anonymizePII) return value;
+    
+    switch (type) {
+      case 'username':
+        // Generalization / Hash pseudonymization
+        return `Alias-${simpleHash(value).toUpperCase()}`;
+      case 'email': {
+        // Masking: j***.d**@example.com -> generalize domain too
+        const parts = value.split('@');
+        if (parts.length !== 2) return `Contact-${simpleHash(value)}`;
+        const namePart = parts[0];
+        const maskedName = namePart.charAt(0) + '***' + namePart.charAt(namePart.length - 1);
+        return `${maskedName}@REDACTED.tld`;
+      }
+      case 'wallet':
+        // Masking
+        if (value.length < 8) return `Wallet-${simpleHash(value)}`;
+        return `${value.substring(0, 4)}••••••••${value.substring(value.length - 4)}`;
+      case 'pgp':
+        // Generalization
+        return `[REDACTED_FINGERPRINT_${simpleHash(value).toUpperCase()}]`;
+      default:
+        return value;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -18,6 +58,13 @@ export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({ prof
           <Brain size={14} className="text-pink-500" />
           Advanced Persona Profiling Module
         </h3>
+        <button 
+          onClick={() => setAnonymizePII(!anonymizePII)}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded text-[10px] uppercase font-bold tracking-widest transition-colors ${anonymizePII ? 'bg-pink-500/20 text-pink-400 border border-pink-500/30' : 'bg-[#1a1a1a] text-gray-500 border border-[#333] hover:text-gray-300'}`}
+        >
+          {anonymizePII ? <EyeOff size={12} /> : <Eye size={12} />}
+          {anonymizePII ? 'PII Redacted' : 'Show Raw PII'}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -88,7 +135,7 @@ export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({ prof
                         <p className="text-[9px] text-gray-500 uppercase mb-2">Usernames & Aliases</p>
                         <div className="flex flex-wrap gap-2">
                           {profile.identifiers.usernames.map((u, i) => (
-                            <span key={i} className="text-[10px] bg-[#1a1a1a] px-2 py-0.5 rounded text-pink-300">{u}</span>
+                            <span key={i} className="text-[10px] bg-[#1a1a1a] px-2 py-0.5 rounded text-pink-300">{maskIdentifier('username', u)}</span>
                           ))}
                         </div>
                       </div>
@@ -97,7 +144,7 @@ export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({ prof
                         <div className="flex flex-wrap gap-2">
                           {profile.identifiers.emails.map((e, i) => (
                             <span key={i} className="text-[10px] bg-[#1a1a1a] px-2 py-0.5 rounded text-blue-300 flex items-center gap-1">
-                              <Mail size={10} /> {e}
+                              <Mail size={10} /> {maskIdentifier('email', e)}
                             </span>
                           ))}
                         </div>
@@ -106,7 +153,7 @@ export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({ prof
                         <p className="text-[9px] text-gray-500 uppercase mb-2">PGP Fingerprints</p>
                         <div className="space-y-1">
                           {profile.identifiers.pgpFingerprints.map((f, i) => (
-                            <p key={i} className="text-[10px] font-mono text-gray-400 break-all">{f}</p>
+                            <p key={i} className="text-[10px] font-mono text-gray-400 break-all">{maskIdentifier('pgp', f)}</p>
                           ))}
                         </div>
                       </div>
@@ -115,7 +162,7 @@ export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({ prof
                         <div className="space-y-1">
                           {profile.identifiers.wallets.map((w, i) => (
                             <p key={i} className="text-[10px] font-mono text-orange-400 flex items-center gap-1">
-                              <Wallet size={10} /> {w}
+                              <Wallet size={10} /> {maskIdentifier('wallet', w)}
                             </p>
                           ))}
                         </div>

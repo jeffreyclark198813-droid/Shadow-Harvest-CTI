@@ -29,8 +29,9 @@ export interface ThreatAssessment {
   targetId: string;
   capabilities: string;
   ttps: {
-    id: string;
-    name: string;
+    tactic: string;
+    technique: { id: string; name: string };
+    procedure: string;
     confidence: number;
     explanation: string;
   }[];
@@ -117,6 +118,9 @@ export interface UserPersona {
     dataSharingLevel: 'none' | 'minimal' | 'full';
     encryptedStorage: boolean;
     metadataScrubbing: boolean;
+    advancedFingerprintMasking: boolean;
+    ephemeralChannels: boolean;
+    secureDataStorageProtocols: boolean;
   };
   anonymityScore: {
     value: number;
@@ -126,9 +130,22 @@ export interface UserPersona {
   xp: number;
 }
 
+export interface UserAchievement {
+  id: string;
+  unlockedAt: number;
+}
+
 export interface UserSettings {
   activePersonaId: string;
   role?: 'admin' | 'moderator' | 'user';
+  username?: string;
+  avatar?: string;
+  bio?: string;
+  achievements?: UserAchievement[];
+  stats?: {
+    actionsTaken: number;
+    targetsViewed: number;
+  };
 }
 
 export interface NarrativeEvent {
@@ -337,9 +354,73 @@ export const saveUserSettings = async (userId: string, settings: UserSettings) =
   const path = `users/${userId}/settings`;
   try {
     const { setDoc } = await import('../firebase');
-    await setDoc(doc(db, path, 'main'), { ...settings });
+    await setDoc(doc(db, path, 'main'), { ...settings }, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const incrementUserStat = async (userId: string, statName: 'actionsTaken' | 'targetsViewed') => {
+  const path = `users/${userId}/settings`;
+  try {
+    const { getDoc, setDoc, doc } = await import('../firebase');
+    const docRef = doc(db, path, 'main');
+    const snap = await getDoc(docRef);
+    let stats = { actionsTaken: 0, targetsViewed: 0 };
+    let achievements: UserAchievement[] = [];
+    
+    if (snap.exists()) {
+      const data = snap.data() as UserSettings;
+      if (data.stats) stats = { ...stats, ...data.stats };
+      if (data.achievements) achievements = data.achievements;
+    }
+
+    stats[statName] += 1;
+    
+    // Check auto achievements
+    let newlyUnlocked = false;
+    if (stats.actionsTaken === 1 && !achievements.find(a => a.id === 'first_blood')) {
+      achievements.push({ id: 'first_blood', unlockedAt: Date.now() });
+      newlyUnlocked = true;
+    }
+    if (stats.actionsTaken >= 5 && !achievements.find(a => a.id === 'actions_5')) {
+      achievements.push({ id: 'actions_5', unlockedAt: Date.now() });
+      newlyUnlocked = true;
+    }
+    if (stats.targetsViewed >= 5 && !achievements.find(a => a.id === 'exploration_master')) {
+      achievements.push({ id: 'exploration_master', unlockedAt: Date.now() });
+      newlyUnlocked = true;
+    }
+
+    await setDoc(docRef, { stats, achievements }, { merge: true });
+    
+    if (newlyUnlocked) {
+      // You can dispatch a custom event here if you want to show a toast globally
+      window.dispatchEvent(new CustomEvent('achievement_unlocked'));
+    }
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+export const unlockAchievement = async (userId: string, achievementId: string) => {
+  const path = `users/${userId}/settings`;
+  try {
+    const { getDoc, setDoc, doc } = await import('../firebase');
+    const docRef = doc(db, path, 'main');
+    const snap = await getDoc(docRef);
+    let achievements: UserAchievement[] = [];
+    if (snap.exists() && snap.data().achievements) {
+      achievements = snap.data().achievements;
+    }
+    
+    if (!achievements.find(a => a.id === achievementId)) {
+      achievements.push({ id: achievementId, unlockedAt: Date.now() });
+      await setDoc(docRef, { achievements }, { merge: true });
+      window.dispatchEvent(new CustomEvent('achievement_unlocked'));
+    }
+  } catch (e) {
+    console.error(e);
   }
 };
 
@@ -369,17 +450,29 @@ export const calculateAnonymityScore = (settings: UserPersona['privacySettings']
     breakdown['Tor Network Routing'] = 25;
   }
   if (settings.encryptedStorage) {
-    score += 10;
-    breakdown['Encrypted Data Vault'] = 10;
+    score += 5;
+    breakdown['Encrypted Data Vault'] = 5;
   }
   if (settings.metadataScrubbing) {
-    score += 15;
-    breakdown['Metadata Scrubbing'] = 15;
+    score += 10;
+    breakdown['Metadata Scrubbing'] = 10;
+  }
+  if (settings.advancedFingerprintMasking) {
+    score += 10;
+    breakdown['Fingerprint Masking'] = 10;
+  }
+  if (settings.ephemeralChannels) {
+    score += 10;
+    breakdown['Ephemeral Comms'] = 10;
+  }
+  if (settings.secureDataStorageProtocols) {
+    score += 5;
+    breakdown['Secure Protocols'] = 5;
   }
   
   if (settings.dataSharingLevel === 'none') {
-    score += 15;
-    breakdown['Zero Data Sharing'] = 15;
+    score += 10;
+    breakdown['Zero Data Sharing'] = 10;
   } else if (settings.dataSharingLevel === 'minimal') {
     score += 5;
     breakdown['Minimal Data Sharing'] = 5;

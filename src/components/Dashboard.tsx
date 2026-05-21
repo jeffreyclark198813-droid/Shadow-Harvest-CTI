@@ -6,12 +6,13 @@ import {
   Plus, ChevronRight, BarChart3, ShieldAlert, LogOut, BookOpen,
   User, Zap, Shield, Cpu, Lock, Globe, Filter, SlidersHorizontal, Trash, X
 } from 'lucide-react';
-import { Target, subscribeToTargets, createTarget, deleteTarget, UserPersona, UserSettings } from '../services/dbService';
+import { Target, subscribeToTargets, createTarget, deleteTarget, UserPersona, UserSettings, incrementUserStat, unlockAchievement } from '../services/dbService';
 import { UserPersonaManager } from './UserPersonaManager';
 import { CTIOpsDashboard } from './CTIOpsDashboard';
 import { IntelligenceLibrary } from './IntelligenceLibrary';
 import { AndroidLayout } from './Layout';
 import { SystemSettings } from './SystemSettings';
+import { UserProfileView } from './UserProfileView';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface DashboardProps {
@@ -90,6 +91,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
       createdBy: user.uid,
       userPersonaId: activePersona.id!
     });
+    
+    incrementUserStat(user.uid, 'actionsTaken');
+    unlockAchievement(user.uid, 'first_op');
+
     setIsAdding(false);
     setNewTarget({ name: '', type: 'domain', status: 'pending' });
   };
@@ -279,7 +284,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
       case 'settings':
         return (
           <div className="space-y-8">
-            <SystemSettings settings={settings} />
+            <UserProfileView settings={settings} />
+            <div className="pt-4 border-t border-harvest-border">
+              <SystemSettings settings={settings} />
+            </div>
             <div className="pt-4 border-t border-harvest-border">
               <UserPersonaManager personas={personas} activePersona={activePersona} onClose={() => setActiveTab('targets')} />
             </div>

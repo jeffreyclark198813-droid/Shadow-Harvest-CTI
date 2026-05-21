@@ -6,6 +6,8 @@ import { Dashboard } from './components/Dashboard';
 import { TargetView } from './components/TargetView';
 import { Methodology } from './components/Methodology';
 import { CharacterCreation } from './components/CharacterCreation';
+import { Toaster } from './components/Toaster';
+import { SupportAndFeedback } from './components/SupportAndFeedback';
 import { subscribeToUserPersonas, subscribeToUserSettings, UserPersona, UserSettings } from './services/dbService';
 import { auth } from './firebase';
 import { Loader2 } from 'lucide-react';
@@ -66,6 +68,8 @@ export default function App() {
     <ErrorBoundary>
       <AuthGuard>
         <Router>
+          <Toaster />
+          <SupportAndFeedback />
           <Routes>
             <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
             <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />

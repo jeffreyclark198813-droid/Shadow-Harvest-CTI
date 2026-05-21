@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { 
   UserPersona, saveUserPersona, saveUserSettings, 
-  calculateAnonymityScore, exportUserData, importUserData 
+  calculateAnonymityScore, exportUserData, importUserData,
+  incrementUserStat, unlockAchievement
 } from '../services/dbService';
 import { 
   User, Shield, Settings, 
@@ -86,6 +87,11 @@ export const UserPersonaManager: React.FC<UserPersonaManagerProps> = ({
       anonymityScore
     } as UserPersona);
 
+    incrementUserStat(auth.currentUser.uid, 'actionsTaken');
+    if (anonymityScore.value >= 80) {
+      unlockAchievement(auth.currentUser.uid, 'opsec_master');
+    }
+
     setEditingPersona(null);
     setView('list');
   };
@@ -101,7 +107,10 @@ export const UserPersonaManager: React.FC<UserPersonaManagerProps> = ({
         torRouting: false,
         dataSharingLevel: 'minimal',
         encryptedStorage: true,
-        metadataScrubbing: false
+        metadataScrubbing: false,
+        advancedFingerprintMasking: false,
+        ephemeralChannels: false,
+        secureDataStorageProtocols: true
       },
       level: 1,
       xp: 0
@@ -156,12 +165,15 @@ export const UserPersonaManager: React.FC<UserPersonaManagerProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { key: 'vpnEnabled', label: 'VPN Tunnel', icon: Globe },
               { key: 'torRouting', label: 'Tor Link', icon: EyeOff },
               { key: 'metadataScrubbing', label: 'Data Scrub', icon: Zap },
               { key: 'encryptedStorage', label: 'Encryption', icon: Lock },
+              { key: 'advancedFingerprintMasking', label: 'Fingerprint Masking', icon: EyeOff },
+              { key: 'ephemeralChannels', label: 'Ephemeral Comms', icon: Zap },
+              { key: 'secureDataStorageProtocols', label: 'Secure Protocols', icon: Lock },
             ].map((s) => (
               <button
                 key={s.key}

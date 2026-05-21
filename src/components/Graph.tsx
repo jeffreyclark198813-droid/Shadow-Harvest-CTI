@@ -1,18 +1,22 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { Loader2, Zap, Network, Layers, GitMerge, Filter, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Zap, Network, Layers, GitMerge, Filter, ChevronDown, ChevronUp, Search, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { HelpTooltip } from './HelpTooltip';
 
 export interface Node extends d3.SimulationNodeDatum {
   id: string;
   label: string;
   type: string;
+  metadata?: any;
 }
 
 export interface Link extends d3.SimulationLinkDatum<Node> {
   source: string | Node;
   target: string | Node;
   relationship: string;
+  confidence?: number;
+  dataSource?: string;
 }
 
 export interface CorrelationData {
@@ -34,16 +38,35 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [showPanel, setShowPanel] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+  const [hiddenSources, setHiddenSources] = useState<Set<string>>(new Set());
+  const [minConfidence, setMinConfidence] = useState(0);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
 
   const availableTypes = useMemo(() => Array.from(new Set(nodes.map(n => n.type))), [nodes]);
+  const availableSources = useMemo(() => Array.from(new Set([
+    ...nodes.filter(n => n.metadata?.source).map(n => n.metadata.source as string),
+    ...links.filter(l => l.dataSource).map(l => l.dataSource as string)
+  ])), [nodes, links]);
 
-  const filteredNodes = useMemo(() => nodes.filter(n => !hiddenTypes.has(n.type)), [nodes, hiddenTypes]);
-  const filteredLinks = useMemo(() => links.filter(l => 
-    !hiddenTypes.has(typeof l.source === 'object' ? (l.source as Node).type : nodes.find(n => n.id === l.source)?.type || '') &&
-    !hiddenTypes.has(typeof l.target === 'object' ? (l.target as Node).type : nodes.find(n => n.id === l.target)?.type || '')
-  ), [links, hiddenTypes, nodes]);
+  const filteredNodes = useMemo(() => {
+    return nodes
+      .filter(n => !hiddenTypes.has(n.type))
+      .filter(n => !n.metadata?.source || !hiddenSources.has(n.metadata.source))
+      .filter(n => !searchQuery || n.label.toLowerCase().includes(searchQuery.toLowerCase()) || n.type.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(n => (n.metadata?.confidence !== undefined ? n.metadata.confidence : 1) >= minConfidence);
+  }, [nodes, hiddenTypes, hiddenSources, searchQuery, minConfidence]);
+
+  const filteredLinks = useMemo(() => links.filter(l => {
+    const srcId = typeof l.source === 'object' ? (l.source as Node).id : l.source;
+    const tgtId = typeof l.target === 'object' ? (l.target as Node).id : l.target;
+    // Keep link only if both ends are in filteredNodes and link meets confidence
+    return filteredNodes.some(n => n.id === srcId) && 
+           filteredNodes.some(n => n.id === tgtId) &&
+           (!l.dataSource || !hiddenSources.has(l.dataSource)) &&
+           (l.confidence !== undefined ? l.confidence : 1) >= minConfidence;
+  }), [links, filteredNodes, hiddenSources, minConfidence]);
 
   useEffect(() => {
     if (!svgRef.current || filteredNodes.length === 0) return;
@@ -89,16 +112,34 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
         setSelectedNode(d);
       })
       .on("mouseover", (event, d) => {
+        // Highlight connected nodes and edges
+        node.style("opacity", (n: any) => {
+          if (n.id === d.id) return 1;
+          const isConnected = filteredLinks.some(l => 
+            ((typeof l.source === 'object' ? (l.source as Node).id : l.source) === d.id && (typeof l.target === 'object' ? (l.target as Node).id : l.target) === n.id) ||
+            ((typeof l.target === 'object' ? (l.target as Node).id : l.target) === d.id && (typeof l.source === 'object' ? (l.source as Node).id : l.source) === n.id)
+          );
+          return isConnected ? 1 : 0.15;
+        }).style("transition", "opacity 0.2s ease");
+        
+        link.style("stroke-opacity", (l: any) => {
+          return ((typeof l.source === 'object' ? (l.source as Node).id : l.source) === d.id || (typeof l.target === 'object' ? (l.target as Node).id : l.target) === d.id) ? 1 : 0.1;
+        }).style("transition", "stroke-opacity 0.2s ease");
+
         const isKeystone = correlationData?.calculatedCentrality?.some(c => c.nodeId === d.id);
         const cluster = correlationData?.detectedClusters?.find(c => c.nodeIds.includes(d.id));
+        const confText = d.metadata?.confidence ? `<div class="text-[9px] text-gray-400">Confidence: <span class="text-white">${Math.round(d.metadata.confidence * 100)}%</span></div>` : '';
+        const sourceText = d.metadata?.source ? `<div class="text-[9px] text-gray-400">Source: <span class="text-blue-300">${d.metadata.source}</span></div>` : '';
 
         tooltip
           .style("opacity", 1)
           .html(`
             <div class="text-[10px] font-bold text-white uppercase tracking-tighter">${d.label}</div>
             <div class="text-[9px] text-gray-500 uppercase tracking-widest mb-1">${d.type}</div>
-            ${isKeystone ? '<div class="text-[9px] text-[#00ffcc] font-bold">KEYSTONE NODE</div>' : ''}
-            ${cluster ? '<div class="text-[9px] text-[#ff00ff] italic">' + cluster.theme + '</div>' : ''}
+            ${confText}
+            ${sourceText}
+            ${isKeystone ? '<div class="text-[9px] text-[#00ffcc] font-bold mt-1">KEYSTONE NODE</div>' : ''}
+            ${cluster ? '<div class="text-[9px] text-[#ff00ff] italic mt-1">' + cluster.theme + '</div>' : ''}
           `);
       })
       .on("mousemove", (event) => {
@@ -108,6 +149,8 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
       })
       .on("mouseout", () => {
         tooltip.style("opacity", 0);
+        node.style("opacity", 1);
+        link.style("stroke-opacity", 0.6);
       })
       .call(d3.drag<SVGGElement, Node>()
         .on("start", dragstarted)
@@ -190,10 +233,22 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
       />
       
       {/* Node Filters Overlay */}
-      <div className="absolute top-4 left-4">
+      <div className="absolute top-4 left-4 space-y-2">
+        <div className="flex bg-black/80 backdrop-blur-md border border-white/10 rounded overflow-hidden">
+          <div className="flex items-center px-2 text-gray-500">
+            <Search size={14} />
+          </div>
+          <input 
+            type="text" 
+            placeholder="Search entities..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="bg-transparent border-none text-[10px] uppercase font-bold text-white placeholder-gray-600 outline-none py-2 px-1 w-48"
+          />
+        </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md mb-2"
+          className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md w-full"
         >
           <Filter size={14} className={hiddenTypes.size > 0 ? "text-harvest-warning" : "text-gray-400"} />
           <span className="text-[10px] font-bold uppercase tracking-widest">Filter Layer</span>
@@ -227,6 +282,47 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
                 </div>
               ))}
               {availableTypes.length === 0 && <p className="text-[9px] text-gray-600 italic">No entities present.</p>}
+              
+              {availableSources.length > 0 && (
+                <div className="pt-2 mt-2 border-t border-white/5">
+                  <h4 className="text-[9px] font-bold text-gray-500 uppercase tracking-widest mb-2">Data Sources</h4>
+                  {availableSources.map(s => (
+                    <div key={s} className="flex items-center gap-2">
+                      <input 
+                        type="checkbox"
+                        id={`filter-src-${s}`}
+                        checked={!hiddenSources.has(s)}
+                        onChange={(e) => {
+                          const updated = new Set(hiddenSources);
+                          if (e.target.checked) updated.delete(s);
+                          else updated.add(s);
+                          setHiddenSources(updated);
+                        }}
+                        className="accent-harvest-accent cursor-pointer"
+                      />
+                      <label htmlFor={`filter-src-${s}`} className="text-[10px] text-gray-300 font-mono uppercase cursor-pointer truncate">
+                        {s}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div className="pt-4 mt-2 border-t border-white/5">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Min Confidence</h4>
+                  <span className="text-[9px] text-white font-mono">{Math.round(minConfidence * 100)}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05"
+                  value={minConfidence}
+                  onChange={(e) => setMinConfidence(parseFloat(e.target.value))}
+                  className="w-full accent-harvest-accent"
+                />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -305,13 +401,16 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
 
       {/* Correlation Graph overlay */}
       <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
-        <button 
-          onClick={() => setShowPanel(!showPanel)}
-          className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
-        >
-          <Network size={14} className="text-harvest-accent" />
-          <span className="text-[10px] font-bold uppercase tracking-widest">Correlation Engine</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <HelpTooltip content="The Correlation Engine uses analytical models to find hidden paths, clusters, and keystone hubs within the entity graph." />
+          <button 
+            onClick={() => setShowPanel(!showPanel)}
+            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+          >
+            <Network size={14} className="text-harvest-accent" />
+            <span className="text-[10px] font-bold uppercase tracking-widest">Correlation Engine</span>
+          </button>
+        </div>
 
         <AnimatePresence>
           {showPanel && (
