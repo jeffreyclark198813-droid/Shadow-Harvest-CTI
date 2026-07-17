@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Target as TargetIcon, 
@@ -11,8 +11,11 @@ import {
   Menu,
   Shield,
   Zap,
-  LogOut
+  LogOut,
+  Users,
+  Sparkles
 } from 'lucide-react';
+import { GlobalSearchModal } from './GlobalSearchModal';
 
 interface AndroidLayoutProps {
   children: React.ReactNode;
@@ -31,8 +34,28 @@ export const AndroidLayout: React.FC<AndroidLayoutProps> = ({
   persona,
   onLogout
 }) => {
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowGlobalSearch(true);
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen bg-harvest-bg text-gray-300 overflow-hidden relative">
+      <AnimatePresence>
+        {showGlobalSearch && (
+          <GlobalSearchModal onClose={() => setShowGlobalSearch(false)} />
+        )}
+      </AnimatePresence>
+
       {/* Top App Bar */}
       <header className="h-14 flex items-center justify-between px-4 bg-harvest-card/80 backdrop-blur-md border-b border-harvest-border sticky top-0 z-50">
         <div className="flex items-center gap-3">
@@ -46,9 +69,16 @@ export const AndroidLayout: React.FC<AndroidLayoutProps> = ({
         </div>
         
         <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setShowGlobalSearch(true)} 
+            className="p-2 text-gray-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 rounded-full border border-white/10"
+            title="Global Search (Cmd/Ctrl + K)"
+          >
+            <Search size={14} />
+          </button>
           <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 border border-white/10 rounded-full">
             <Shield size={10} className="text-harvest-accent" />
-            <span className="text-[9px] font-bold text-white uppercase">{persona.anonymityScore.value}%</span>
+            <span className="text-[9px] font-bold text-white uppercase">{persona.anonymityScore?.value || 0}%</span>
           </div>
           <button onClick={onLogout} className="p-2 text-gray-500 hover:text-white transition-colors">
             <LogOut size={18} />
@@ -87,9 +117,11 @@ export const AndroidLayout: React.FC<AndroidLayoutProps> = ({
       <nav className="h-16 flex items-center justify-around bg-harvest-card/90 backdrop-blur-lg border-t border-harvest-border fixed bottom-0 left-0 right-0 z-50">
         {[
           { id: 'targets', icon: TargetIcon, label: 'Targets' },
+          { id: 'bulk', icon: Search, label: 'Bulk Scan'},
           { id: 'activity', icon: BarChart3, label: 'CTI Ops' },
+          { id: 'restoration', icon: Sparkles, label: 'Restore' },
           { id: 'monitor', icon: Activity, label: 'Live Fed' },
-          { id: 'library', icon: BookOpen, label: 'Library' },
+          { id: 'workspace', icon: Users, label: 'Collab' },
           { id: 'settings', icon: Settings, label: 'Profile' }
         ].map((item) => (
           <button

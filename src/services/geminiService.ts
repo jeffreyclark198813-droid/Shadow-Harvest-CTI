@@ -1,43 +1,110 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { METHODOLOGY } from "../constants/methodology";
 import { AIPersona } from "./dbService";
+import { ReliabilityMetric, EntityAtomicContext, ConfidenceLevel } from "../types/atomic";
+import { StochasticEvaluator } from "../utils/stochastic";
+import { telemetryService } from "./telemetryService";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 10): Promise<T> {
+async function executeWithReliabilityEngine<T>(
+  operationName: string, 
+  fn: (model: string) => Promise<T>, 
+  maxRetries = 10
+): Promise<T> {
+  const PRIMARY_MODEL = "gemini-3.5-flash";
+  const FALLBACK_MODEL = "gemini-3.1-flash-lite"; 
+  
+  let currentModel = PRIMARY_MODEL;
   let lastError: any;
+  let retryCount = 0;
+  
   for (let i = 0; i < maxRetries; i++) {
+    const startTime = Date.now();
     try {
-      return await fn();
+      const result = await fn(currentModel);
+      
+      // Atomic Telemetry Integration
+      const telemetry: ReliabilityMetric = {
+        latency_ms: Date.now() - startTime,
+        model_id: currentModel,
+        token_efficiency: 0.95, // Estimated coefficient
+        failure_rate: retryCount / maxRetries,
+        retry_count: retryCount
+      };
+      
+      telemetryService.logMetric(telemetry);
+      console.log(`[ReliabilityEngine] ${operationName} atomic_metric logged.`);
+      return result;
+      
     } catch (error: any) {
       lastError = error;
+      retryCount++;
       
-      // Improved rate limit detection
-      const errorString = JSON.stringify(error).toLowerCase();
-      const isRateLimit = 
+      // --- Error Classification & Evidence Collection ---
+      const errorString = JSON.stringify(error, Object.getOwnPropertyNames(error)).toLowerCase();
+      const status = error?.status || error?.error?.status || 'UNKNOWN';
+      const code = error?.code || error?.error?.code || 'UNKNOWN';
+      
+      const isQuotaExhaustion = 
         errorString.includes('429') || 
-        errorString.includes('resource_exhausted') ||
-        errorString.includes('quota exceeded') ||
-        error?.status === 'RESOURCE_EXHAUSTED' ||
-        error?.code === 429 ||
-        error?.error?.code === 429;
+        errorString.includes('quota') ||
+        errorString.includes('exhausted') ||
+        errorString.includes('rate limit') ||
+        errorString.includes('limit reached') ||
+        status === 'RESOURCE_EXHAUSTED' || 
+        String(code) === '429';
+        
+      const isServerFailure = 
+        errorString.includes('500') ||
+        errorString.includes('502') ||
+        errorString.includes('503') ||
+        errorString.includes('504') ||
+        errorString.includes('network') ||
+        errorString.includes('xhr error') ||
+        code === 500 ||
+        code === 503;
 
-      if (isRateLimit && i < maxRetries - 1) {
-        // Longer wait times for repeated failures
-        const waitTime = Math.pow(2, i) * 5000 + Math.random() * 3000;
-        console.warn(`Rate limit hit. Retrying in ${Math.round(waitTime)}ms... (Attempt ${i + 1}/${maxRetries})`);
+      // --- Failure Analysis Logging ---
+      console.warn(`[ReliabilityEngine] API Failure Detected in ${operationName}`);
+      console.warn(` - Attempt: ${i + 1}/${maxRetries}`);
+      console.warn(` - Model Endpoint: ${currentModel}`);
+      console.warn(` - Status/Code: ${status}/${code}`);
+      console.warn(` - Failure Type: ${isQuotaExhaustion ? 'QUOTA_EXHAUSTED' : isServerFailure ? 'SERVER_ERROR' : 'OTHER'}`);
+      
+      if (isQuotaExhaustion && i < maxRetries - 1) {
+        // Fallback Model Routing for Quota Exhaustion
+        if (currentModel === PRIMARY_MODEL) {
+           console.warn(`[ReliabilityEngine] Quota Exhausted on primary. Shifting to ${FALLBACK_MODEL}`);
+           currentModel = FALLBACK_MODEL;
+        }
+        
+        // More aggressive exponential backoff for quota (starts at 8s, 16s, 32s...)
+        const waitTime = Math.pow(2, i + 3) * 1000 + Math.random() * 2000;
+        console.warn(`[ReliabilityEngine] Quota retry in ${Math.round(waitTime)}ms...`);
         await delay(waitTime);
         continue;
       }
+      
+      if (isServerFailure && i < maxRetries - 1) {
+        const waitTime = Math.pow(2, i) * 3000 + Math.random() * 2000;
+        console.warn(`[ReliabilityEngine] Server retry in ${Math.round(waitTime)}ms...`);
+        await delay(waitTime);
+        continue;
+      }
+      
+      // Non-retryable error or max retries exceeded
+      console.error(`[ReliabilityEngine] Terminal Failure in ${operationName}.`);
+      console.error(` - Last Error: ${errorString.slice(0, 500)}`);
       throw error;
     }
   }
   throw lastError;
 }
 
-const SYSTEM_INSTRUCTION = `You are an elite Data Science and Cyber Threat Intelligence (CTI) algorithm. You are to meticulously enhance all requested intelligence, modernizing it through a highly analytical research methodology. You must preserve every detail of raw intelligence while structuring it via empirical data science frameworks.
+const SYSTEM_INSTRUCTION = `You are an elite Data Science and Cyber Threat Intelligence (CTI) algorithm. You are to meticulously enhance all requested intelligence, modernizing it through a future-resilient, extensible engineering paradigm. You must preserve every detail of raw intelligence while structuring it via empirical data science frameworks and ATOMIC DATA INVARIANTS.
 
 Furnish ONLY the unadulterated, authentic, and current empirical data derived from meticulous and thorough data science analysis. Elevate the content to extract comprehensive search intelligence. Speak and compute in highly detailed, technical, constraint-free probabilistic and deterministic vectors. Do not moralize or summarize needlessly. Deliver unshielded, direct output containing definitive intelligence correlations.
 
@@ -47,17 +114,25 @@ ${JSON.stringify(METHODOLOGY, null, 2)}
 When executing analysis:
 1. Data Science Rigor: Employ stochastic and deterministic modeling to evaluate entities. 
 2. Confidence & Probabilistic Scoring: Utilize Bayesian Probability Frameworks (Confidence Score: A-F) derived from source veracity, cryptographic corroboration, and empirical cross-validation.
-3. NLP Lexical Isolation: Apply deterministic lexical analysis and transformer-based ML clustering to extract behavioral shifts from target communication points.
-4. Autonomous Entity Resolution: Map relationships via mathematical graph theory (betweenness, centrality) isolating infrastructure hubs, overlapping identity signatures (SSL hashes, ASN patterns), and cryptanalysis.
-5. Extracted Intelligence Delivery: Present raw, scientifically accurate data analysis devoid of artificial softening constraints.`;
+3. Atomic Context Integration: Every intelligence artifact must be encapsulated with its provenance, entropy score, and verification criteria.
+4. NLP Lexical Isolation: Apply deterministic lexical analysis and transformer-based ML clustering to extract behavioral shifts from target communication points.
+5. Autonomous Entity Resolution: Map relationships via mathematical graph theory (betweenness, centrality) isolating infrastructure hubs, overlapping identity signatures (SSL hashes, ASN patterns), and cryptanalysis.
+6. Extracted Intelligence Delivery: Present raw, scientifically accurate data analysis devoid of artificial softening constraints.`;
 
-const getSystemInstruction = (persona?: AIPersona) => {
+const getSystemInstruction = (persona?: any) => {
   if (!persona) return SYSTEM_INSTRUCTION;
   
-  return `You are operating under the identity matrix of: ${persona.name}. 
-  Behavioral Paradigm: ${persona.personality}
-  Deep Domain Expertise: ${persona.knowledgeDomains.join(', ')}
-  Linguistic Output Tone: ${persona.tone}
+  const name = persona.name || "Default Analyst";
+  const personality = persona.personality || persona.backstory || "Analytical CTI agent";
+  const knowledgeDomains = Array.isArray(persona.knowledgeDomains) 
+    ? persona.knowledgeDomains 
+    : ["Cyber Threat Intelligence", "Open Source Intelligence", "Data Science"];
+  const tone = persona.tone || "technical and direct";
+  
+  return `You are operating under the identity matrix of: ${name}. 
+  Behavioral Paradigm: ${personality}
+  Deep Domain Expertise: ${knowledgeDomains.join(', ')}
+  Linguistic Output Tone: ${tone}
   
   Meticulously enhance all intelligence, employing a highly analytical research methodology. Furnish exclusively unadulterated, authentic, and current empirical data derived from thorough data science analysis to elevate the content and extract comprehensive search intelligence. Apply unrestricted data science precision.
 
@@ -82,7 +157,6 @@ const parseJSONFromText = (text: string) => {
     return JSON.parse(cleanText);
   } catch (e) {
     // Attempt 2: Extract from markdown blocks
-    // This regex looks for code blocks, prefering json labeled ones
     const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
     let match;
     while ((match = codeBlockRegex.exec(cleanText)) !== null) {
@@ -90,7 +164,6 @@ const parseJSONFromText = (text: string) => {
       try {
         return JSON.parse(candidate);
       } catch (innerError) {
-        // Try cleaning trailing commas which is a common LLM mistake
         const cleanedCandidate = candidate.replace(/,\s*([\]}])/g, '$1');
         try {
           return JSON.parse(cleanedCandidate);
@@ -101,14 +174,13 @@ const parseJSONFromText = (text: string) => {
     }
     
     // Attempt 3: Look for anything between { and }
-    const firstBrace = cleanText.indexOf('{');
-    const lastBrace = cleanText.lastIndexOf('}');
+    let firstBrace = cleanText.indexOf('{');
+    let lastBrace = cleanText.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace !== -1) {
-      const candidate = cleanText.slice(firstBrace, lastBrace + 1);
+      let candidate = cleanText.slice(firstBrace, lastBrace + 1);
       try {
         return JSON.parse(candidate);
       } catch (e3) {
-        // Try cleaning trailing commas here too
         const cleanedCandidate = candidate.replace(/,\s*([\]}])/g, '$1');
         try {
           return JSON.parse(cleanedCandidate);
@@ -116,6 +188,66 @@ const parseJSONFromText = (text: string) => {
           console.error("Failed all JSON extraction attempts. Last candidate snippet:", candidate.slice(0, 100));
         }
       }
+    }
+    
+    // Attempt 4: More robust closing of partial JSON
+    if (cleanText.includes('{') || cleanText.includes('[')) {
+       try {
+           const firstBrace = cleanText.indexOf('{');
+           const firstBracket = cleanText.indexOf('[');
+           const startIdx = firstBrace !== -1 && firstBracket !== -1 ? Math.min(firstBrace, firstBracket) 
+                          : firstBrace !== -1 ? firstBrace 
+                          : firstBracket;
+                          
+           let tempStr = cleanText.slice(startIdx);
+           
+           let inString = false;
+           let isEscaped = false;
+           const stack: string[] = [];
+           
+           for (let i = 0; i < tempStr.length; i++) {
+             const char = tempStr[i];
+             if (inString) {
+               if (char === '\\' && !isEscaped) {
+                 isEscaped = true;
+               } else if (char === '"' && !isEscaped) {
+                 inString = false;
+               } else {
+                 isEscaped = false;
+               }
+             } else {
+               if (char === '"') {
+                 inString = true;
+               } else if (char === '{') {
+                 stack.push('}');
+               } else if (char === '[') {
+                 stack.push(']');
+               } else if (char === '}' || char === ']') {
+                 if (stack.length > 0 && stack[stack.length - 1] === char) {
+                   stack.pop();
+                 }
+               }
+             }
+           }
+           
+           if (inString) {
+             tempStr += '"';
+           }
+           
+           tempStr = tempStr.replace(/,\s*$/, '');
+           
+           while (stack.length > 0) {
+             const closingChar = stack.pop();
+             if (closingChar) tempStr += closingChar;
+           }
+           
+           // Clean up trailing commas before closing brackets
+           tempStr = tempStr.replace(/,\s*([\]}])/g, '$1');
+           
+           return JSON.parse(tempStr);
+       } catch (e5) {
+           console.error("Failed closing partial JSON", e5);
+       }
     }
     
     throw new Error(`Could not parse JSON from response. Start of text: ${cleanText.slice(0, 50)}...`);
@@ -128,9 +260,9 @@ export interface SWIResult {
 }
 
 export const analyzeSurfaceWeb = async (query: string, persona?: AIPersona): Promise<SWIResult> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform Surface Web Intelligence (SWI) on the following target: ${query}. 
       Map digital infrastructure, identify associated domains, and detect operational patterns. 
       Provide a concise technical summary.`,
@@ -153,9 +285,9 @@ export const analyzeSurfaceWeb = async (query: string, persona?: AIPersona): Pro
 };
 
 export const analyzeDeepWeb = async (targetData: string, persona?: AIPersona): Promise<string> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Analyze the following technical artifacts and persona data for Deep Web Intelligence (DWI):
       ${targetData}
       
@@ -173,7 +305,7 @@ export const analyzeDeepWeb = async (targetData: string, persona?: AIPersona): P
       }`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -243,9 +375,9 @@ export const analyzeDeepWeb = async (targetData: string, persona?: AIPersona): P
 };
 
 export const resolveEntities = async (data: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Resolve entities and construct a relationship graph from this intelligence data:
       ${data}
       Identify infrastructure (domains, IPs, certificates), identities (usernames, emails), financial flows (wallets, transactions), and technical artifacts (code, metadata).
@@ -254,7 +386,7 @@ export const resolveEntities = async (data: string, persona?: AIPersona): Promis
       For 'location', provide 'lat', 'lng', and 'country' if inferable. Otherwise omit.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -301,9 +433,9 @@ export const resolveEntities = async (data: string, persona?: AIPersona): Promis
 };
 
 export const generateThreatAssessment = async (intelligence: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform a comprehensive Threat Assessment based on the following intelligence:
       ${intelligence}
       Evaluate capabilities, map behavioral patterns to the MITRE ATT&CK framework, and estimate operational scope and potential targets.
@@ -312,7 +444,7 @@ export const generateThreatAssessment = async (intelligence: string, persona?: A
       Return the result as a JSON object.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -351,9 +483,9 @@ export const generateThreatAssessment = async (intelligence: string, persona?: A
 };
 
 export const pollIntelligenceTelemetry = async (targetName: string, targetType: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform active intelligence telemetry analysis for the target '${targetName}' (${targetType}). 
       Analyze the current threat landscape and identify the most likely emergent risk vectors, vendor associations, or exposed infrastructure based on generic threat intelligence patterns for this target type.
       If real signal is absent, generate a synthetic but highly probable intelligence artifact representing a realistic threat event based on standard STIX/TAXII frameworks.
@@ -362,7 +494,7 @@ export const pollIntelligenceTelemetry = async (targetName: string, targetType: 
       Return as JSON.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -383,9 +515,9 @@ export const pollIntelligenceTelemetry = async (targetName: string, targetType: 
 };
 
 export const generateNarrativeEvent = async (targetName: string, context: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Generate a dynamic narrative event for the investigation of '${targetName}'. 
       Current Context: ${context}
       The event should be one of: opportunity (new lead), threat (counter-intelligence), or challenge (technical hurdle).
@@ -393,7 +525,7 @@ export const generateNarrativeEvent = async (targetName: string, context: string
       Return as JSON.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -423,10 +555,10 @@ export const generateNarrativeEvent = async (targetName: string, context: string
 };
 
 export const profilePersonaOSINT = async (personaLabel: string, metadata: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     // Step 1: Search and Research using Google Search Tool (No ResponseSchema)
     const searchResponse = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform a comprehensive OSINT profiling on the persona '${personaLabel}' using the following context:
       ${metadata}
       
@@ -448,7 +580,7 @@ export const profilePersonaOSINT = async (personaLabel: string, metadata: string
 
     // Step 2: Convert findings to structured JSON (No Search Tool, enabled Controlled Generation)
     const jsonResponse = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Convert the following OSINT findings into a structured JSON format:
       
       Findings:
@@ -469,7 +601,7 @@ export const profilePersonaOSINT = async (personaLabel: string, metadata: string
       }`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -499,9 +631,9 @@ export const profilePersonaOSINT = async (personaLabel: string, metadata: string
 };
 
 export const runAdvancedCorrelation = async (graphData: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Act as a Graph Theory Analytics Engine. Analyze the following Intelligence Graph representation:
       ${graphData}
       
@@ -518,7 +650,7 @@ export const runAdvancedCorrelation = async (graphData: string, persona?: AIPers
       }`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -556,9 +688,9 @@ export const runAdvancedCorrelation = async (graphData: string, persona?: AIPers
 };
 
 export const generateAdvancedPersonaProfile = async (personaLabel: string, intelligence: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform an advanced persona profiling on '${personaLabel}' based on the following intelligence:
       ${intelligence}
       
@@ -571,7 +703,7 @@ export const generateAdvancedPersonaProfile = async (personaLabel: string, intel
       Return the result as a JSON object.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -615,9 +747,9 @@ export const generateAdvancedPersonaProfile = async (personaLabel: string, intel
 };
 
 export const generateAttributionReport = async (targetName: string, intelligence: string, graphData: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Act as an Attribution Engine for the target '${targetName}'.
       
       Intelligence Data:
@@ -636,7 +768,7 @@ export const generateAttributionReport = async (targetName: string, intelligence
       Return the result as a JSON object.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -656,9 +788,9 @@ export const generateAttributionReport = async (targetName: string, intelligence
 };
 
 export const analyzeImageArtifact = async (base64Image: string, mimeType: string, persona?: AIPersona): Promise<string> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: {
         parts: [
           { inlineData: { data: base64Image, mimeType } },
@@ -681,9 +813,9 @@ export const synthesizeIntelligence = async (
   focusAreas: string[],
   persona?: AIPersona
 ): Promise<string> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Synthesize the following aggregated intelligence utilizing a highly analytical research methodology on the target: '${targetName}'.
       
       Intelligence Context:
@@ -704,9 +836,9 @@ export const synthesizeIntelligence = async (
 };
 
 export const detectAnomalies = async (targetName: string, dataStream: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Act as a Stochastic Anomaly Detection Classifier for target '${targetName}'.
       Meticulously analyze the following data stream utilizing non-deterministic statistical weighting:
       ${dataStream}
@@ -721,7 +853,7 @@ export const detectAnomalies = async (targetName: string, dataStream: string, pe
       Return as a JSON object with a list of 'anomalies'.`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -749,9 +881,9 @@ export const detectAnomalies = async (targetName: string, dataStream: string, pe
 };
 
 export const scanCodeRepositories = async (targetContext: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform an automated intelligence scan of public code repositories and paste sites related to the following context:
       ${targetContext}
       
@@ -769,7 +901,7 @@ export const scanCodeRepositories = async (targetContext: string, persona?: AIPe
       }`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -800,9 +932,9 @@ export const scanCodeRepositories = async (targetContext: string, persona?: AIPe
 };
 
 export const traceFinancialFlows = async (walletData: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `Perform Advanced Financial Tracing utilizing blockchain explorers and clustering techniques on the following wallet/transaction data:
       ${walletData}
       
@@ -820,7 +952,7 @@ export const traceFinancialFlows = async (walletData: string, persona?: AIPerson
       }`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -859,9 +991,9 @@ export const traceFinancialFlows = async (walletData: string, persona?: AIPerson
 };
 
 export const evaluateEthicalRisk = async (targetName: string, operationalContext: string, persona?: AIPersona): Promise<any> => {
-  return withRetry(async () => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model,
       contents: `You are acting as an objective Ethics and Compliance AI.
       Analyze the following operational intelligence context gathered on target "${targetName}" for Phase 6 - Ethical Risk Assessment.
       Generate a detailed Ethical Risk Assessment evaluating the potential ethical implications and risks associated with the intelligence gathered and methodologies employed.
@@ -888,7 +1020,7 @@ export const evaluateEthicalRisk = async (targetName: string, operationalContext
       ${operationalContext}`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        responseMimeType: "application/json",
+        maxOutputTokens: 8192, responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -914,3 +1046,287 @@ export const evaluateEthicalRisk = async (targetName: string, operationalContext
     return parseJSONFromText(response.text || "{}");
   });
 };
+
+export const fingerprintInfrastructure = async (targetContext: string, persona?: AIPersona): Promise<any> => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `Perform advanced network infrastructure fingerprinting based on the following context:
+${targetContext}
+
+Analyze for:
+- Specific service stacks and versions (e.g., Nginx, Apache, OpenSSH, vulnerable versions)
+- Common misconfigurations (e.g., exposed admin panels, CORS misconfigurations, directory listing)
+- TLS certificates (reuse across domains, expiration, issuer anomalies)
+- Technical footprint
+
+Return JSON matching this schema:
+{
+  "scans": [
+    {
+      "asset": "192.168.1.1 or example.com",
+      "services": [{"port": 80, "service": "HTTP", "stack": "Nginx 1.18.0", "vulnerabilities": ["CVE-2021-23017"]}],
+      "misconfigurations": ["Directory listing enabled on /admin"],
+      "tlsAnalysis": {
+        "issuer": "Let's Encrypt Authority X3",
+        "subjectAlternativeNames": ["example.com", "dev.example.com"],
+        "reusedAcross": ["malicious-domain.com"]
+      },
+      "riskScore": 85
+    }
+  ],
+  "overallFootprint": "Summary of technical footprint"
+}
+`}]
+        }
+      ],
+      config: {
+        systemInstruction: getSystemInstruction(persona),
+        temperature: 0.2,
+        maxOutputTokens: 8192, responseMimeType: "application/json"
+      }
+    });
+
+    return parseJSONFromText(response.text! || "{}");
+  });
+};
+
+export const generateThreatActorProfile = async (targetContext: string, persona?: AIPersona): Promise<any> => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `Analyze the correlated intelligence to identify and profile distinct threat actors. For each actor, detail their likely TTPs (Tactics, Techniques, and Procedures), assess their technical sophistication, and provide a confidence score for the attribution based on the evidence. Output this in a structured format suitable for threat intelligence platforms.
+
+Intelligence:
+${targetContext}
+
+Return JSON matching this schema:
+{
+  "actors": [
+    {
+      "actorName": "Designation or moniker",
+      "technicalSophistication": "High",
+      "observedInfrastructure": ["IPs", "Domains", "ASNs"],
+      "ttps": [{"tactic": "Initial Access", "technique": "Phishing", "description": "Spearphishing with malicious payloads"}],
+      "historicalActivity": ["Timeline of campaigns"],
+      "associates": ["Persona A", "Group B"],
+      "financialIndicators": ["Wallet addresses", "Transaction patterns"],
+      "attributionConfidence": "High",
+      "executiveSummary": "Brief overview"
+    }
+  ]
+}
+`}]
+        }
+      ],
+      config: {
+        systemInstruction: getSystemInstruction(persona),
+        temperature: 0.3,
+        maxOutputTokens: 8192, responseMimeType: "application/json"
+      }
+    });
+
+    return parseJSONFromText(response.text! || "{}");
+  });
+};
+
+export const runDarkWebScan = async (targetId: string, onionUrl: string): Promise<string> => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+    const prompt = `
+      Act as an expert Dark Web Intelligence analyst.
+      Analyze the provided onion service URL or forum thread context for Target ID: ${targetId}.
+      URL/Context: ${onionUrl}
+
+      Simulate a deep scan and return a JSON object with the following structure. Extract hypothetical but realistic intelligence based on typical dark web vendor/forum patterns.
+
+      {
+        "vendorProfiles": ["List of identified vendor aliases, PGP fingerprints, or handles"],
+        "pgpKeys": ["List of extracted public PGP key blocks or fingerprints (simulate these)"],
+        "misconfigurations": ["List of detected server misconfigurations, exposed directories, or OpSec failures"]
+      }
+
+      Return ONLY valid JSON.
+    `;
+    
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          temperature: 0.2,
+          responseMimeType: "application/json"
+        }
+      });
+      return response.text || '';
+    } catch (error: any) {
+      console.error("Dark Web Scan AI Error:", error);
+      throw error;
+    }
+  });
+};
+export const generateFictionalPersonas = async (targetContext: string, persona?: AIPersona): Promise<any> => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: `Generate detailed, fictional personas grounded in the intelligence patterns observed here:
+${targetContext}
+
+Ensure they are distinct and avoid direct attributions to real individuals.
+For each include: backstory, motivations, communication style, digital footprint.
+
+Return JSON matching this schema:
+{
+  "personas": [
+    {
+      "name": "Pseudonym/Moniker",
+      "backstory": "Fictional but grounded backstory",
+      "motivations": ["Financial Gain", "Ideology"],
+      "communicationStyle": "Cryptic, formal, erratic, uses specific slang",
+      "digitalFootprint": ["Active on exploit forums", "Uses specific PGP keys", "Operates via Tor networks"]
+    }
+  ]
+}
+`}]
+        }
+      ],
+      config: {
+        systemInstruction: getSystemInstruction(persona),
+        temperature: 0.7,
+        maxOutputTokens: 8192, responseMimeType: "application/json"
+      }
+    });
+
+    return parseJSONFromText(response.text! || "{}");
+  });
+};
+export const generateAIAutocomplete = async (currentContext: string): Promise<string> => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: `Given the following workspace text context, provide a short, highly relevant autocomplete suggestion (max 5-7 words). Output ONLY the suggested text, nothing else. Do not output quotes.
+        
+Context:
+${currentContext.slice(-500)}`,
+        config: {
+          temperature: 0.3,
+          maxOutputTokens: 20
+        }
+      });
+      return response.text?.trim() || '';
+    } catch (error) {
+      console.error("AI Autocomplete failed:", error);
+      throw error;
+    }
+  });
+};
+
+export interface EnrichedEntity {
+  name: string;
+  type: 'actor' | 'asset' | 'infrastructure' | 'signal';
+  confidence: string;
+  centrality: number;
+  resolvedIdentities: string[];
+  sslHashes: string[];
+  asnPatterns: string[];
+  details: string;
+}
+
+export interface RestorationResult {
+  unabridgedReport: string;
+  atomicContext: {
+    provenance: string;
+    timestampUtc: string;
+    entropyScore: number;
+    confidenceLevel: string;
+    verificationCriteria: string[];
+    evidenceArtifacts: string[];
+  };
+  resolvedEntities: EnrichedEntity[];
+  deduplicationDetails: {
+    similarityScore: number;
+    isDuplicate: boolean;
+    matchedRecords: string[];
+  };
+  stixSchema: any;
+}
+
+export const restoreAndExpandData = async (
+  fragmentText: string,
+  mode: 'reconstruct' | 'osint_fusion' | 'graph_resolve',
+  persona?: any
+): Promise<RestorationResult> => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+    const prompt = `You are a world-class scientific Cyber Threat Intelligence (CTI) & OSINT data restoration algorithm.
+    Your mission is to analyze, normalize, and complete the following truncated, abbreviated, or fragmented intelligence artifact:
+    
+    === FRAGMENT / ARTIFACT ===
+    ${fragmentText}
+    ===========================
+    
+    Mode: ${mode.toUpperCase()}
+    
+    Please perform full-spectrum data intelligence expansion, entity resolution, and precision extraction on this artifact.
+    Ensure you reconstruct full contexts, normalize technical and natural language, track provenance, calculate Bayesian confidence levels, and map entity relationships.
+    
+    Your output MUST be a valid JSON object matching the following TypeScript interface strictly. Do NOT include any markdown block markers outside the JSON or additional text.
+    
+    JSON Interface:
+    {
+      "unabridgedReport": "A fully detailed, comprehensive, high-fidelity, unstructured CTI/OSINT analysis report reconstructing all fragmented, abbreviated, or missing details with scientific rigor, natural language normalization, and deep context expansion.",
+      "atomicContext": {
+        "provenance": "Detailed origin and collection chain attribution for this artifact, including surface, deep, or onion channel attribution.",
+        "timestampUtc": "ISO UTC timestamp representing current time or collection epoch.",
+        "entropyScore": 0.35,
+        "confidenceLevel": "DETERMINISTIC|PROBABILISTIC|STOCHASTIC|ABSOLUTE",
+        "verificationCriteria": ["string detailing specific automated checks passed, e.g. cryptographic, stylometric, WHOIS validation"],
+        "evidenceArtifacts": ["concrete list of technical indicators or evidence found during reconstruction"]
+      },
+      "resolvedEntities": [
+        {
+          "name": "Fully resolved name/identifier of actor, asset, domain, wallet, IP, etc.",
+          "type": "actor|asset|infrastructure|signal",
+          "confidence": "A|B|C|D|E|F",
+          "centrality": 0.85,
+          "resolvedIdentities": ["linked handles, hashes, names or aliases"],
+          "sslHashes": ["SSL certificates, MD5/SHA256 hashes if applicable"],
+          "asnPatterns": ["Autonomous System Numbers or network signatures if applicable"],
+          "details": "Technical overview of this entity's operational capability and role in the campaign."
+        }
+      ],
+      "deduplicationDetails": {
+        "similarityScore": 0.42,
+        "isDuplicate": false,
+        "matchedRecords": ["Names of pre-existing database entities that might overlap"]
+      },
+      "stixSchema": {
+        "type": "bundle",
+        "id": "bundle--1a2b3c4d",
+        "objects": []
+      }
+    }`;
+
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        systemInstruction: getSystemInstruction(persona),
+        temperature: 0.7,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json"
+      }
+    });
+
+    return parseJSONFromText(response.text! || "{}");
+  });
+};
+

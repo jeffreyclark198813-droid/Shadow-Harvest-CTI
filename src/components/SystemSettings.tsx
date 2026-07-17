@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, saveUserSettings } from '../services/dbService';
 import { auth } from '../firebase';
-import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff } from 'lucide-react';
+import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff, Network } from 'lucide-react';
 import { motion } from 'motion/react';
+import { DynamicAPIEndpointRegistry } from './DynamicAPIEndpointRegistry';
 
 interface SystemSettingsProps {
   settings: UserSettings | null;
@@ -48,7 +49,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
           onClick={() => setActiveTab('integrations')}
           className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'integrations' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
         >
-          Threat Feeds (API)
+          D.A.E.R. Layer
         </button>
         <button
           onClick={() => setActiveTab('anonymity')}
@@ -179,59 +180,7 @@ resource "confluent_kafka_topic" "raw_events" {
         </div>
       )}
       {activeTab === 'integrations' && (
-        <div className="hardware-surface p-6 space-y-6">
-          <h3 className="mono-label flex items-center gap-2 text-white">
-            <Globe size={14} className="text-harvest-info"/>
-            External Intelligence Integrations
-          </h3>
-          <p className="text-[11px] font-mono text-gray-400">
-            Configure external threat intelligence feeds to automatically enrich targets and profiles.
-          </p>
-          
-          <div className="space-y-4">
-            <div className="p-4 rounded border bg-black/50 border-white/5 space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest">AlienVault OTX</h4>
-                  <p className="text-[10px] text-gray-500 font-mono mt-1">Open Threat Exchange pulses and indicators of compromise.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span className="text-[9px] font-mono text-gray-500">OFFLINE</span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                 <label className="text-[9px] font-mono text-gray-400 uppercase">API Key</label>
-                 <input type="password" placeholder="Enter OTX Key..." className="w-full bg-harvest-bg border border-harvest-border rounded p-2 text-xs font-mono text-white focus:border-harvest-accent outline-none" />
-              </div>
-              <button className="text-[10px] uppercase font-bold text-harvest-accent hover:text-white transition-colors">Test Connection</button>
-            </div>
-
-            <div className="p-4 rounded border bg-black/50 border-white/5 space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest">MISP Threat Sharing</h4>
-                  <p className="text-[10px] text-gray-500 font-mono mt-1">Malware Information Sharing Platform instance connection.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  <span className="text-[9px] font-mono text-gray-500">OFFLINE</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[9px] font-mono text-gray-400 uppercase">Instance URL</label>
-                  <input type="text" placeholder="https://misp.local" className="w-full bg-harvest-bg border border-harvest-border rounded p-2 text-xs font-mono text-white focus:border-harvest-accent outline-none" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[9px] font-mono text-gray-400 uppercase">API Key</label>
-                  <input type="password" placeholder="Enter MISP Auth Key..." className="w-full bg-harvest-bg border border-harvest-border rounded p-2 text-xs font-mono text-white focus:border-harvest-accent outline-none" />
-                </div>
-              </div>
-              <button className="text-[10px] uppercase font-bold text-harvest-accent hover:text-white transition-colors">Test Connection</button>       
-            </div>
-          </div>
-        </div>
+        <DynamicAPIEndpointRegistry />
       )}
 
       {activeTab === 'anonymity' && (

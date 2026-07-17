@@ -4,15 +4,23 @@ import { auth } from '../firebase';
 import { 
   Terminal, Activity, Database, Search, Target as TargetIcon, 
   Plus, ChevronRight, BarChart3, ShieldAlert, LogOut, BookOpen,
-  User, Zap, Shield, Cpu, Lock, Globe, Filter, SlidersHorizontal, Trash, X
+  User, Zap, Shield, Cpu, Lock, Globe, Filter, SlidersHorizontal, Trash, X, Star, Binary
 } from 'lucide-react';
-import { Target, subscribeToTargets, createTarget, deleteTarget, UserPersona, UserSettings, incrementUserStat, unlockAchievement } from '../services/dbService';
+import { Target, subscribeToTargets, createTarget, deleteTarget, updateTargetPriority, UserPersona, UserSettings, incrementUserStat, unlockAchievement } from '../services/dbService';
 import { UserPersonaManager } from './UserPersonaManager';
 import { CTIOpsDashboard } from './CTIOpsDashboard';
 import { IntelligenceLibrary } from './IntelligenceLibrary';
+import { BulkScannerView } from './BulkScannerView';
+import { IntelligenceRestorationView } from './IntelligenceRestorationView';
 import { AndroidLayout } from './Layout';
 import { SystemSettings } from './SystemSettings';
 import { UserProfileView } from './UserProfileView';
+import { QuickScanModal } from './QuickScanModal';
+import { CorrelationHeatmap } from './CorrelationHeatmap';
+import { CollaborativeWorkspace } from './CollaborativeWorkspace';
+import { AtomicContextViewer } from './AtomicContextViewer';
+import { telemetryService } from '../services/telemetryService';
+import { ReliabilityMetric } from '../types/atomic';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface DashboardProps {
@@ -29,10 +37,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isAdding, setIsAdding] = useState(false);
-  const [activeTab, setActiveTab] = useState('targets');
+  const [activeTab, setActiveTab] = useState<string>('targets');
   const [showSearchHistory, setShowSearchHistory] = useState(false);
+  const [quickScanTarget, setQuickScanTarget] = useState<Target | null>(null);
   const [newTarget, setNewTarget] = useState({ name: '', type: 'domain' as any, status: 'pending' as any });
+  const [telemetry, setTelemetry] = useState<ReliabilityMetric[]>([]);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const unsub = telemetryService.subscribe(setTelemetry);
+    return () => { unsub(); };
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem('dwi_recent_searches');
@@ -78,6 +93,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
     }
   };
 
+  const handleTogglePriority = async (e: React.MouseEvent, target: Target) => {
+    e.stopPropagation();
+    if (!target.id) return;
+    await updateTargetPriority(target.id, !target.isPriorityAsset);
+  };
+
   const handleCreateTarget = async (e: React.FormEvent) => {
     e.preventDefault();
     const user = auth.currentUser;
@@ -101,7 +122,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
 
   const filteredTargets = targets.filter(t => {
     const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'all' || t.type === filterType;
+    const matchesType = filterType === 'all' || 
+                        (filterType === 'priority' ? t.isPriorityAsset : t.type === filterType);
     const matchesStatus = filterStatus === 'all' || t.status === filterStatus;
     return matchesSearch && matchesType && matchesStatus;
   });
@@ -162,16 +184,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                 <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1">
                   {[
                     { id: 'all', label: 'All' },
+                    { id: 'priority', label: 'Priority' },
                     { id: 'domain', label: 'Domains' },
                     { id: 'persona', label: 'Personas' },
                     { id: 'wallet', label: 'Wallets' },
                     { id: 'ip', label: 'IPs' },
+                    { id: 'telemetry', label: 'Telemetry' },
                   ].map(chip => (
                     <button
                       key={chip.id}
-                      onClick={() => setFilterType(chip.id)}
+                      onClick={() => chip.id === 'telemetry' ? setActiveTab('telemetry') : setFilterType(chip.id)}
                       className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-                        filterType === chip.id 
+                        (filterType === chip.id || (chip.id === 'telemetry' && (activeTab as string) === 'telemetry'))
                           ? 'bg-harvest-accent text-black' 
                           : 'text-gray-500 hover:text-gray-300'
                       }`}
@@ -202,6 +226,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Correlation Heatmap */}
+            <div className="mb-6">
+              <CorrelationHeatmap targets={targets} />
             </div>
 
             {/* Target Cards */}
@@ -258,6 +287,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                         <p className="text-[10px] font-mono font-bold text-harvest-accent">{target.confidenceScore || 0}%</p>
                         <p className="mono-label !text-[8px]">Confidence</p>
                       </div>
+                      <button
+                        onClick={(e) => handleTogglePriority(e, target)}
+                        className={`p-2 transition-all border border-transparent rounded ${
+                          target.isPriorityAsset 
+                            ? 'text-yellow-400 hover:bg-yellow-400/10 hover:border-yellow-400/30 opacity-100' 
+                            : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-0 group-hover:opacity-100'
+                        }`}
+                        title={target.isPriorityAsset ? "Remove Priority Status" : "Mark as Priority Asset"}
+                      >
+                        <Star size={16} fill={target.isPriorityAsset ? "currentColor" : "none"} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQuickScanTarget(target);
+                        }}
+                        className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
+                        title="Quick Scan"
+                      >
+                        <Search size={16} />
+                      </button>
                       <button 
                         onClick={(e) => handleDeleteTarget(e, target.id as string)}
                         className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
@@ -279,8 +329,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
         );
       case 'activity':
         return <CTIOpsDashboard targets={targets} activePersona={activePersona} onClose={() => setActiveTab('targets')} />;
+      case 'bulk':
+        return <BulkScannerView activePersona={activePersona} onClose={() => setActiveTab('targets')} />;
+      case 'restoration':
+        return <IntelligenceRestorationView activePersona={activePersona} onClose={() => setActiveTab('targets')} />;
+      case 'workspace':
+        return <CollaborativeWorkspace workspaceId="global-intelligence-workspace" />;
       case 'library':
         return <IntelligenceLibrary />;
+      case 'telemetry':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="mono-label text-gray-400 flex items-center gap-2">
+                <Binary size={12} className="text-harvest-accent" />
+                ARCHITECTURAL TELEMETRY
+              </h2>
+              <button 
+                onClick={() => setActiveTab('targets')}
+                className="text-[10px] text-gray-600 hover:text-white transition-colors uppercase tracking-widest"
+              >
+                Return to Database
+              </button>
+            </div>
+            <AtomicContextViewer metrics={telemetry} />
+          </div>
+        );
       case 'settings':
         return (
           <div className="space-y-8">
@@ -336,6 +410,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
       {renderContent()}
 
       {/* Add Target Modal */}
+      <AnimatePresence>
+        {quickScanTarget && (
+          <QuickScanModal target={quickScanTarget} onClose={() => setQuickScanTarget(null)} />
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {isAdding && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-xl flex items-end sm:items-center justify-center p-0 sm:p-4 z-[100]">

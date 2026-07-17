@@ -6,6 +6,7 @@ import { evaluateEthicalRisk } from '../services/geminiService';
 import { notify } from './Toaster';
 import { auth } from '../firebase';
 import { incrementUserStat, unlockAchievement } from '../services/dbService';
+import { useEnduringState } from '../hooks/useEnduringState';
 
 interface EthicalRiskAssessmentViewProps {
   targetId: string;
@@ -28,7 +29,7 @@ interface RiskAssessment {
 }
 
 export const EthicalRiskAssessmentView: React.FC<EthicalRiskAssessmentViewProps> = ({ targetId, targetName, reports }) => {
-  const [assessment, setAssessment] = useState<RiskAssessment | null>(null);
+  const [assessment, setAssessment] = useEnduringState<RiskAssessment | null>(`${targetId}_ethical_eval`, null);
   const [loading, setLoading] = useState(false);
 
   const runAssessment = async () => {

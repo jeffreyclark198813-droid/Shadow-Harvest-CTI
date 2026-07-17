@@ -15,7 +15,7 @@ export const NarrativeEventDisplay: React.FC<NarrativeEventDisplayProps> = ({ ev
   return (
     <div className="space-y-4">
       <AnimatePresence>
-        {events.map((event) => (
+        {events?.map((event) => (
           <motion.div
             key={event.id}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -53,7 +53,7 @@ export const NarrativeEventDisplay: React.FC<NarrativeEventDisplayProps> = ({ ev
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {event.choices.map((choice, i) => (
+                {event.choices?.map((choice, i) => (
                   <button
                     key={i}
                     onClick={() => event.id && onResolve(event.id)}

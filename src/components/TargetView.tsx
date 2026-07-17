@@ -3,10 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ChevronLeft, Shield, Search, Database, Share2, 
   FileText, Loader2, CheckCircle2, Image as ImageIcon, Activity,
-  Zap, Radio, Globe, User, Cpu, BarChart3, EyeOff, GitMerge, Code2, Bitcoin, Download, Network, Scale
+  Zap, Radio, Globe, User, Cpu, BarChart3, EyeOff, GitMerge, Code2, Bitcoin, Download, Network, Scale, Link as LinkIcon, ShieldAlert
 } from 'lucide-react';
-import { 
-  Target, IntelligenceReport, ThreatAssessment, MonitoringEvent, NarrativeEvent, PersonaOSINT,
+import { useEnduringState } from '../hooks/useEnduringState';
+import { Target, IntelligenceReport, ThreatAssessment, MonitoringEvent, NarrativeEvent, PersonaOSINT,
   AdvancedPersonaProfile, AttributionReport, AIPersona, SynthesizedOutput, Anomaly, UserPersona,
   ConfidenceBreakdown, calculateAttributionConfidence,
   subscribeToReports, addReport, subscribeToThreatAssessments, subscribeToMonitoringEvents,
@@ -38,6 +38,14 @@ import { IntelligenceSynthesizer } from './IntelligenceSynthesizer';
 import { VisualizationDashboard } from './VisualizationDashboard';
 import { AnomalyDetectionView } from './AnomalyDetectionView';
 import { EthicalRiskAssessmentView } from './EthicalRiskAssessmentView';
+import { AdversarialTestingView } from './AdversarialTestingView';
+import { InfrastructureFingerprintingView } from './InfrastructureFingerprintingView';
+import { ThreatActorProfileTemplateView } from './ThreatActorProfileTemplateView';
+import { FictionalPersonaGenerationView } from './FictionalPersonaGenerationView';
+import { PersonaLinkerView } from './PersonaLinkerView';
+import { IdentityCorrelatorView } from './IdentityCorrelatorView';
+import { DarkWebScannerView } from './DarkWebScannerView';
+import { generateStixBundle, downloadStixJson } from '../utils/stixExport';
 import { auth, db, doc, onSnapshot, updateDoc } from '../firebase';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
@@ -45,6 +53,10 @@ import { UserSettings } from '../services/dbService';
 import { ExportDataModal } from './ExportDataModal';
 import { HelpTooltip } from './HelpTooltip';
 import { notify } from './Toaster';
+
+import { audioFeedback } from '../utils/audio';
+import jsPDF from 'jspdf';
+import domtoimage from 'dom-to-image-more';
 
 interface TargetViewProps {
   activePersona: UserPersona;
@@ -69,9 +81,18 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [generatingEvent, setGeneratingEvent] = useState(false);
-  const [graphData, setGraphData] = useState<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] });
-  const [correlationData, setCorrelationData] = useState<CorrelationData | undefined>(undefined);
-  const [activeTab, setActiveTab] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics'>('reports');
+  const [graphData, setGraphData] = useEnduringState<{ nodes: any[], edges: any[] }>(`${id}_graphData`, { nodes: [], edges: [] });
+  const [correlationData, setCorrelationData] = useEnduringState<CorrelationData | undefined>(`${id}_correlationData`, undefined);
+  const [activeTab, setActiveTabRaw] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'link_personas' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics' | 'adversarial' | 'infrastructure_fp' | 'actor_template' | 'fictional_personas'>(() => {
+    // Try to load cached tab from session storage
+    const cached = sessionStorage.getItem(`target_tab_${id}`);
+    return (cached as any) || 'reports';
+  });
+
+  const setActiveTab = (tab: typeof activeTab) => {
+    setActiveTabRaw(tab);
+    sessionStorage.setItem(`target_tab_${id}`, tab);
+  };
 
   const selectedPersona = personas.find(p => p.id === selectedPersonaId);
 
@@ -126,6 +147,44 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
       unsubAnomalies();
     };
   }, [id]);
+
+  const generatePDFReport = async () => {
+    try {
+      const element = document.getElementById('report-container-pdf');
+      if (!element) {
+        notify({ type: 'error', title: 'Export Failed', message: 'No content available for export.' });
+        return;
+      }
+      notify({ type: 'success', title: 'Processing', message: 'Generating stylized PDF report...' });
+      audioFeedback.playTrigger('high');
+      
+      const imgData = await domtoimage.toJpeg(element, { 
+        quality: 0.95, 
+        bgcolor: '#050505',
+        style: {
+          transform: 'scale(1)',
+          transformOrigin: 'top left'
+        }
+      });
+      
+      const img = new Image();
+      img.src = imgData;
+      await new Promise((resolve) => {
+        img.onload = resolve;
+      });
+
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (img.height * pdfWidth) / img.width;
+      
+      pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`Intelligence_Report_${target?.name || 'target'}.pdf`);
+      notify({ type: 'success', title: 'Export Complete', message: 'PDF report has been downloaded successfully.' });
+    } catch (err) {
+      console.error(err);
+      notify({ type: 'error', title: 'Export Failed', message: 'Failed to generate PDF.' });
+    }
+  };
 
   const runAnalysis = async () => {
     if (!target || !id) return;
@@ -201,6 +260,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         errorString.includes('429') || 
         errorString.includes('resource_exhausted') ||
         errorString.includes('quota exceeded') ||
+        errorString.includes('surpassed the quota') ||
         error?.status === 'RESOURCE_EXHAUSTED' ||
         error?.code === 429 ||
         error?.error?.code === 429;
@@ -584,11 +644,30 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
             </div>
           </div>
           <button 
+            onClick={generatePDFReport}
+            className="hardware-button !py-2 !px-4 !text-[10px] flex items-center gap-2 mr-2"
+          >
+            <FileText size={14} />
+            <span className="hidden sm:inline">PDF</span>
+          </button>
+          <button 
             onClick={() => setIsExportModalOpen(true)}
             className="hardware-button !py-2 !px-4 !text-[10px] flex items-center gap-2 mr-2"
           >
             <Download size={14} />
-            <span className="hidden sm:inline">EXPORT</span>
+            <span className="hidden sm:inline">EXPORT DB</span>
+          </button>
+          <button 
+            onClick={() => {
+              const bundle = generateStixBundle(target, reports, assessments, monitoringEvents, narrativeEvents, osintData, personaProfiles, attributionReports, synthesizedOutputs, anomalies);
+              downloadStixJson(bundle, `STIX_Export_${target.id}.json`);
+              notify({type: 'success', title: 'STIX Exported', message: 'Structured Intelligence Export generated.'});
+            }}
+            className="hardware-button !py-2 !px-4 !text-[10px] flex items-center gap-2 mr-2"
+            title="Export STIX 2.1 JSON"
+          >
+            <Share2 size={14} className="text-[#ff00ff]"/>
+            <span className="hidden sm:inline text-[#ff00ff]">STIX</span>
           </button>
           <button 
             onClick={runAnalysis}
@@ -601,7 +680,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden" id="report-container-pdf">
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Action Scroller */}
@@ -616,11 +695,18 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
               { id: 'monitoring', label: 'Live', icon: Activity },
               { id: 'osint', label: 'OSINT', icon: Globe },
               { id: 'profiling', label: 'Profile', icon: User },
+              { id: 'link_personas', label: 'Linker', icon: LinkIcon },
               { id: 'attribution', label: 'Origin', icon: Zap },
               { id: 'synthesis', label: 'Synthesis', icon: Cpu },
               { id: 'visuals', label: 'Metrics', icon: BarChart3 },
               { id: 'anomalies', label: 'Alerts', icon: EyeOff },
               { id: 'ethics', label: 'Ethics', icon: Scale },
+              { id: 'adversarial', label: 'Adversarial', icon: ShieldAlert },
+              { id: 'infrastructure_fp', label: 'Infra FP', icon: Network },
+              { id: 'actor_template', label: 'Actor Profile', icon: FileText },
+              { id: 'fictional_personas', label: 'Fictional Gen', icon: User },
+              { id: 'identity_correlator', label: 'Identity Correlator', icon: Network },
+              { id: 'dark_web', label: 'Dark Web Scan', icon: Globe },
             ].map((tab) => (
               <button 
                 key={tab.id}
@@ -782,6 +868,37 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                     <PersonaProfilingView profiles={personaProfiles} onProfile={handleAdvancedPersonaProfile} loading={analyzing} personas={graphData.nodes.filter(n => n.type === 'persona')} />
                   </div>
                 )}
+                {activeTab === 'link_personas' && (
+                  <div className="max-w-6xl mx-auto">
+                    <PersonaLinkerView 
+                      personas={graphData.nodes.filter(n => n.type === 'persona')} 
+                      profiles={personaProfiles} 
+                      loading={analyzing} 
+                      onConfirmLink={async (sourceId, targetId, rationale) => {
+                        setAnalyzing(true);
+                        try {
+                           // For now simply add a logic event & mock merge
+                           await addReport({
+                             targetId: id || '',
+                             phase: 4,
+                             content: `### Persona Correlation Confirmed\n\n**Linked:** \`${graphData.nodes.find(n => n.id === sourceId)?.label || sourceId}\` and \`${graphData.nodes.find(n => n.id === targetId)?.label || targetId}\`.\n\n**Engine Rationale:** ${rationale}`,
+                             source: 'Attribution Engine',
+                             confidence: 'A'
+                           });
+                           
+                           // Add edge in graph
+                           setGraphData(prev => ({
+                             nodes: prev.nodes,
+                             edges: [...prev.edges, { source: sourceId, target: targetId, relationship: 'Linked Identity', confidence: 0.95 }]
+                           }));
+                           notify({ type: 'success', title: 'Persona Linked', message: 'The personas have been linked in the intelligence graph.' });
+                        } finally {
+                          setAnalyzing(false);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
                 {activeTab === 'attribution' && (
                   <div className="max-w-6xl mx-auto">
                     <AttributionEngineView reports={attributionReports} onGenerate={runAttributionEngine} loading={analyzing} />
@@ -806,6 +923,36 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                 {activeTab === 'ethics' && (
                   <div className="max-w-6xl mx-auto">
                     <EthicalRiskAssessmentView targetId={id || ''} targetName={target.name} reports={reports} />
+                  </div>
+                )}
+                {activeTab === 'adversarial' && (
+                  <div className="max-w-6xl mx-auto">
+                    <AdversarialTestingView targetId={id || ''} targetName={target.name} />
+                  </div>
+                )}
+                {activeTab === 'infrastructure_fp' && (
+                  <div className="max-w-6xl mx-auto">
+                    <InfrastructureFingerprintingView target={target} intelligenceContext={reports.map(r => r.content).join('\n\n')} />
+                  </div>
+                )}
+                {activeTab === 'actor_template' && (
+                  <div className="max-w-6xl mx-auto">
+                    <ThreatActorProfileTemplateView target={target} intelligenceContext={reports.map(r => r.content).join('\n\n')} />
+                  </div>
+                )}
+                {activeTab === 'fictional_personas' && (
+                  <div className="max-w-6xl mx-auto">
+                    <FictionalPersonaGenerationView target={target} intelligenceContext={reports.map(r => r.content).join('\n\n')} />
+                  </div>
+                )}
+                {activeTab === 'identity_correlator' as any && (
+                  <div className="max-w-6xl mx-auto">
+                    <IdentityCorrelatorView target={target} />
+                  </div>
+                )}
+                {activeTab === 'dark_web' as any && (
+                  <div className="max-w-6xl mx-auto">
+                    <DarkWebScannerView target={target} />
                   </div>
                 )}
               </motion.div>

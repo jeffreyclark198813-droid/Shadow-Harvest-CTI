@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { Loader2, Zap, Network, Layers, GitMerge, Filter, ChevronDown, ChevronUp, Search, HelpCircle } from 'lucide-react';
+import { Loader2, Zap, Network, Layers, GitMerge, Filter, ChevronDown, ChevronUp, Search, HelpCircle, Download, Database, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { HelpTooltip } from './HelpTooltip';
 
@@ -43,6 +43,139 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(new Set());
   const [minConfidence, setMinConfidence] = useState(0);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
+  const handleExportCSV = () => {
+    const nodeMap = new Map();
+    nodes.forEach(n => nodeMap.set(n.id, n));
+
+    const csvRows = [
+      ['Source_ID', 'Source_Label', 'Source_Type', 'Relationship', 'Target_ID', 'Target_Label', 'Target_Type', 'Confidence', 'DataSource'].join(',')
+    ];
+
+    links.forEach(l => {
+      const sourceId = typeof l.source === 'string' ? l.source : (l.source as Node).id;
+      const targetId = typeof l.target === 'string' ? l.target : (l.target as Node).id;
+      
+      const sourceNode = nodeMap.get(sourceId) || { label: sourceId, type: 'unknown' };
+      const targetNode = nodeMap.get(targetId) || { label: targetId, type: 'unknown' };
+
+      const wrap = (val: any) => `"${String(val || '').replace(/"/g, '""')}"`;
+      
+      csvRows.push([
+        wrap(sourceId),
+        wrap(sourceNode.label),
+        wrap(sourceNode.type),
+        wrap(l.relationship),
+        wrap(targetId),
+        wrap(targetNode.label),
+        wrap(targetNode.type),
+        wrap(l.confidence || ''),
+        wrap(l.dataSource || '')
+      ].join(','));
+    });
+
+    // Add standalone nodes that have no relationships
+    const linkedNodeIds = new Set();
+    links.forEach(l => {
+      linkedNodeIds.add(typeof l.source === 'string' ? l.source : (l.source as Node).id);
+      linkedNodeIds.add(typeof l.target === 'string' ? l.target : (l.target as Node).id);
+    });
+
+    nodes.forEach(n => {
+      if (!linkedNodeIds.has(n.id)) {
+        const wrap = (val: any) => `"${String(val || '').replace(/"/g, '""')}"`;
+        csvRows.push([
+          wrap(n.id),
+          wrap(n.label),
+          wrap(n.type),
+          wrap('Standalone'),
+          '""',
+          '""',
+          '""',
+          '""',
+          wrap(n.metadata?.source || '')
+        ].join(','));
+      }
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `network_export.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportNeo4j = () => {
+    let cypher = '// Neo4j Cypher Import Script\n';
+    filteredNodes.forEach(n => {
+      const safeType = n.type.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeId = n.id.replace(/[^a-zA-Z0-9]/g, '_');
+      cypher += `MERGE (n${safeId}:${safeType} {id: "${n.id}", label: "${(n.label||'').replace(/"/g, '\\"')}"})\n`;
+    });
+    filteredLinks.forEach(l => {
+      const srcId = typeof l.source === 'object' ? (l.source as Node).id : l.source;
+      const tgtId = typeof l.target === 'object' ? (l.target as Node).id : l.target;
+      const safeSrc = srcId.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeTgt = tgtId.replace(/[^a-zA-Z0-9]/g, '_');
+      const safeRel = (l.relationship||'RELATES_TO').toUpperCase().replace(/[^A-Z0-9]/g, '_');
+      cypher += `MERGE (n${safeSrc})-[:${safeRel}]->(n${safeTgt})\n`;
+    });
+
+    const blob = new Blob([cypher], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `neo4j_import.cypher`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportMaltego = () => {
+    const csvRows = [];
+    csvRows.push(['Entity.Type1', 'Entity.Value1', 'Entity.Type2', 'Entity.Value2', 'Link.Label'].join(','));
+    const wrap = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+    
+    const mapType = (t: string) => {
+      switch(t) {
+         case 'persona': return 'maltego.Person';
+         case 'email': return 'maltego.EmailAddress';
+         case 'domain': return 'maltego.Domain';
+         case 'ip': return 'maltego.IPv4Address';
+         case 'wallet': return 'maltego.CryptocurrencyWallet';
+         default: return `maltego.Unknown`;
+      }
+    };
+
+    filteredLinks.forEach(l => {
+      const srcNode = filteredNodes.find(n => n.id === (typeof l.source === 'object' ? (l.source as Node).id : l.source));
+      const tgtNode = filteredNodes.find(n => n.id === (typeof l.target === 'object' ? (l.target as Node).id : l.target));
+      if (srcNode && tgtNode) {
+        csvRows.push([
+          wrap(mapType(srcNode.type)),
+          wrap(srcNode.label),
+          wrap(mapType(tgtNode.type)),
+          wrap(tgtNode.label),
+          wrap(l.relationship)
+        ].join(','));
+      }
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `maltego_export.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const availableTypes = useMemo(() => Array.from(new Set(nodes.map(n => n.type))), [nodes]);
   const availableSources = useMemo(() => Array.from(new Set([
@@ -402,6 +535,27 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
       {/* Correlation Graph overlay */}
       <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2">
+          <button 
+            onClick={handleExportCSV}
+            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+          >
+            <Download size={14} className="text-gray-400" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 font-mono">CSV</span>
+          </button>
+          <button 
+            onClick={handleExportNeo4j}
+            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+          >
+            <Database size={14} className="text-[#0088ff]" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#0088ff] font-mono">Neo4j</span>
+          </button>
+          <button 
+            onClick={handleExportMaltego}
+            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+          >
+            <Share2 size={14} className="text-[#ff00ff]" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#ff00ff] font-mono">Maltego</span>
+          </button>
           <HelpTooltip content="The Correlation Engine uses analytical models to find hidden paths, clusters, and keystone hubs within the entity graph." />
           <button 
             onClick={() => setShowPanel(!showPanel)}

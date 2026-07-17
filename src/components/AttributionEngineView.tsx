@@ -80,7 +80,35 @@ export const AttributionEngineView: React.FC<AttributionEngineViewProps> = ({ re
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Geotemporal Analysis */}
+            {/* Source Reliability Matrix */}
+            <div className="bg-[#111] border border-[#222] p-6 rounded-lg space-y-4 col-span-1 md:col-span-2 mt-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-yellow-400 uppercase">
+                <ShieldCheck size={16} />
+                Source Reliability Matrix
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[
+                  { source: 'Technical Infrastructure (DNS/IP)', reliability: 0.95, weight: 'High' },
+                  { source: 'Financial Ledgers (Blockchain)', reliability: 0.98, weight: 'High' },
+                  { source: 'OSINT & Social Graph', reliability: 0.65, weight: 'Medium' },
+                  { source: 'Behavioral/Sentiment Inference', reliability: 0.45, weight: 'Low' }
+                ].map((matrix, idx) => (
+                  <div key={idx} className="bg-black/30 p-4 rounded border border-[#222]">
+                    <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">{matrix.source}</div>
+                    <div className="flex justify-between items-end">
+                      <div className="text-lg font-bold text-white">{(matrix.reliability * 100).toFixed(0)}%</div>
+                      <div className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                        matrix.weight === 'High' ? 'bg-green-500/20 text-green-400' :
+                        matrix.weight === 'Medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        {matrix.weight}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="bg-[#111] border border-[#222] p-6 rounded-lg space-y-4">
               <div className="flex items-center gap-2 text-xs font-bold text-green-400 uppercase">
                 <Map size={16} />

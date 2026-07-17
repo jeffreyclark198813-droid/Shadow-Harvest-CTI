@@ -3,6 +3,7 @@ import { Target } from '../services/dbService';
 import { Bitcoin, Activity, Link, Layers, AlertCircle, Cpu } from 'lucide-react';
 import { traceFinancialFlows } from '../services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
+import { useEnduringState } from '../hooks/useEnduringState';
 
 interface FinancialTracingViewProps {
   target: Target;
@@ -10,7 +11,7 @@ interface FinancialTracingViewProps {
 
 export const FinancialTracingView: React.FC<FinancialTracingViewProps> = ({ target }) => {
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useEnduringState<any>(`${target.id}_financial_trace`, null);
 
   const handleTrace = async () => {
     setLoading(true);

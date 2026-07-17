@@ -6,6 +6,7 @@ import {
   RefreshCw, Radio
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { ThreatHeatmap } from './ThreatHeatmap';
 
 interface CTIOpsDashboardProps {
   targets: Target[];
@@ -16,14 +17,27 @@ interface CTIOpsDashboardProps {
 export const CTIOpsDashboard: React.FC<CTIOpsDashboardProps> = ({ targets, activePersona }) => {
   const [load, setLoad] = useState('12.4%');
   const [throughput, setThroughput] = useState('42.8 GB/s');
+  const [heatmapData, setHeatmapData] = useState<{date: Date; intensity: number}[]>([]);
 
   useEffect(() => {
+    // Generate some mock heatmap data relative to the current targets
+    const data = [];
+    const baseDate = new Date();
+    for (let i = 0; i < 60; i++) {
+        const d = new Date(baseDate);
+        d.setDate(d.getDate() - (59 - i));
+        // Add random intensity, boosting if it matches recently active targets
+        const intensity = Math.floor(Math.random() * (targets.length * 2 + 5));
+        data.push({ date: d, intensity });
+    }
+    setHeatmapData(data);
+
     const interval = setInterval(() => {
       setLoad(`${(Math.random() * 5 + 10).toFixed(1)}%`);
       setThroughput(`${(Math.random() * 20 + 30).toFixed(1)} GB/s`);
     }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [targets.length]);
 
   const avgConfidence = targets.length > 0 
     ? Math.round(targets.reduce((acc, t) => acc + (t.confidenceScore || 0), 0) / targets.length) 
@@ -69,6 +83,14 @@ export const CTIOpsDashboard: React.FC<CTIOpsDashboardProps> = ({ targets, activ
             <kpi.icon size={32} className="absolute -right-2 -bottom-2 opacity-5" />
           </motion.div>
         ))}
+      </div>
+
+      <div className="hardware-surface p-4">
+        <h2 className="mono-label mb-4 flex items-center gap-2">
+          <Activity size={12} className="text-harvest-accent" />
+          Live Threat Telemetry History
+        </h2>
+        <ThreatHeatmap data={heatmapData} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

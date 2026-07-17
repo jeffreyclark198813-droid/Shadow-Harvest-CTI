@@ -3,6 +3,7 @@ import { Target } from '../services/dbService';
 import { Code2, Github, ShieldAlert, Cpu, AlertTriangle, Key } from 'lucide-react';
 import { scanCodeRepositories } from '../services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
+import { useEnduringState } from '../hooks/useEnduringState';
 
 interface CodeScannerViewProps {
   target: Target;
@@ -10,7 +11,7 @@ interface CodeScannerViewProps {
 
 export const CodeScannerView: React.FC<CodeScannerViewProps> = ({ target }) => {
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useEnduringState<any>(`${target.id}_code_scan`, null);
 
   const handleScan = async () => {
     setLoading(true);

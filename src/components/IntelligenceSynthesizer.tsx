@@ -4,6 +4,7 @@ import { synthesizeIntelligence } from '../services/geminiService';
 import { FileText, Zap, Layout, Target, CheckCircle2, Loader2, Save } from 'lucide-react';
 import { motion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import { useEnduringState } from '../hooks/useEnduringState';
 
 interface IntelligenceSynthesizerProps {
   targetId: string;
@@ -20,12 +21,12 @@ export const IntelligenceSynthesizer: React.FC<IntelligenceSynthesizerProps> = (
   persona,
   outputs 
 }) => {
-  const [format, setFormat] = useState<'summary' | 'report' | 'comparison'>('summary');
-  const [focusAreas, setFocusAreas] = useState<string[]>([]);
+  const [format, setFormat] = useEnduringState<'summary' | 'report' | 'comparison'>(`${targetId}_synth_format`, 'summary');
+  const [focusAreas, setFocusAreas] = useEnduringState<string[]>(`${targetId}_synth_focus`, []);
   const [focusInput, setFocusInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [title, setTitle] = useState('');
+  const [result, setResult] = useEnduringState<string | null>(`${targetId}_synth_result`, null);
+  const [title, setTitle] = useEnduringState<string>(`${targetId}_synth_title`, '');
 
   const handleSynthesize = async () => {
     if (!intelligenceContext) return;

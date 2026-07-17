@@ -2,6 +2,68 @@ import {
   db, collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, OperationType, handleFirestoreError, doc, getDocs
 } from '../firebase';
 
+export interface ApiEndpointConfig {
+  id?: string;
+  name: string;
+  type: 'rest' | 'websocket' | 'grpc' | 'batch' | 'webhook';
+  base_url: string;
+  auth_method: 'api_key' | 'oauth2' | 'mTLS' | 'signed_request' | 'none';
+  classification_tag: 'OSINT' | 'SOC' | 'GOV' | 'MIL' | 'PRIVATE' | 'OTHER';
+  enabled: boolean;
+  refresh_interval_ms: number;
+  data_lineage_required: boolean;
+  createdBy: string;
+  createdAt?: any;
+  updatedAt?: any;
+  status?: 'REGISTERED' | 'VALIDATED' | 'ACTIVE' | 'DEGRADED' | 'DISABLED' | 'RETIRED';
+}
+
+export const createApiEndpoint = async (endpoint: Omit<ApiEndpointConfig, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const path = 'api_endpoints';
+  try {
+    const docRef = await addDoc(collection(db, path), {
+      ...endpoint,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const updateApiEndpoint = async (id: string, updates: Partial<ApiEndpointConfig>) => {
+  const path = 'api_endpoints';
+  try {
+    await updateDoc(doc(db, path, id), {
+      ...updates,
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+};
+
+export const deleteApiEndpoint = async (id: string) => {
+  const path = 'api_endpoints';
+  try {
+    await deleteDoc(doc(db, path, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
+export const subscribeToApiEndpoints = (uid: string, callback: (endpoints: ApiEndpointConfig[]) => void) => {
+  const path = 'api_endpoints';
+  const q = query(collection(db, path), where('createdBy', '==', uid));
+  return onSnapshot(q, (snapshot) => {
+    const endpoints = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ApiEndpointConfig));
+    callback(endpoints);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
 export interface Target {
   id?: string;
   name: string;
@@ -12,6 +74,10 @@ export interface Target {
   updatedAt: any;
   createdBy: string;
   userPersonaId: string;
+  isPriorityAsset?: boolean;
+  reports?: IntelligenceReport[];
+  threatAssessments?: ThreatAssessment[];
+  aliases?: string[];
 }
 
 export interface IntelligenceReport {
@@ -236,6 +302,18 @@ export const deleteTarget = async (id: string) => {
     await deleteDoc(doc(db, path, id));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
+export const updateTargetPriority = async (id: string, isPriorityAsset: boolean) => {
+  const path = 'targets';
+  try {
+    await updateDoc(doc(db, path, id), {
+      isPriorityAsset,
+      updatedAt: Timestamp.now()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 };
 
