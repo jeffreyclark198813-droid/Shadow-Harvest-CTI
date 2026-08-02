@@ -1,83 +1,239 @@
+export type Platform =
+  | 'Signal'
+  | 'Telegram'
+  | 'Matrix'
+  | 'XMPP'
+  | 'Email'
+  | 'Other';
+
+export interface IdentifierMetadata {
+  bio?: string;
+  creationDate?: string;
+  username?: string;
+  [key: string]: unknown;
+}
+
 export interface Identifier {
-  platform: 'Signal' | 'Telegram' | 'Matrix' | 'XMPP' | 'Email' | 'Other';
+  platform: Platform;
   value: string;
-  metadata?: Record<string, any>;
+  metadata?: IdentifierMetadata;
+}
+
+export interface MatchEvidence {
+  signal: string;
+  contribution: number;
 }
 
 export interface CorrelationMatch {
   identifier1: Identifier;
   identifier2: Identifier;
-  probability: number;
-  reason: string;
+  confidence: number;
+  evidence: MatchEvidence[];
 }
 
-export const analyzeIdentifiers = (identifiers: Identifier[]): CorrelationMatch[] => {
+interface NormalizedIdentifier {
+  original: Identifier;
+  username: string;
+  metadata: IdentifierMetadata;
+}
+
+const SCORE_WEIGHTS = {
+  exactUsername: 0.55,
+  partialUsername: 0.25,
+  prefixSimilarity: 0.15,
+  matchingBio: 0.25,
+  creationProximity: 0.10,
+} as const;
+
+const normalizeIdentifier = (
+  identifier: Identifier
+): NormalizedIdentifier => {
+  let username = identifier.value
+    .trim()
+    .toLowerCase();
+
+  switch (identifier.platform) {
+    case 'Email':
+      username = username.split('@')[0];
+      break;
+
+    case 'Matrix':
+    case 'XMPP':
+      username = username
+        .split(':')[0]
+        .replace(/^@/, '');
+      break;
+
+    default:
+      username = username.replace(/^@/, '');
+  }
+
+  return {
+    original: identifier,
+    username,
+    metadata: identifier.metadata ?? {},
+  };
+};
+
+const calculateDateDistance = (
+  first?: string,
+  second?: string
+): number | null => {
+  if (!first || !second) return null;
+
+  const a = Date.parse(first);
+  const b = Date.parse(second);
+
+  if (Number.isNaN(a) || Number.isNaN(b)) {
+    return null;
+  }
+
+  return Math.abs(a - b) / 86_400_000;
+};
+
+const compareUsernames = (
+  a: string,
+  b: string,
+  evidence: MatchEvidence[]
+): number => {
+  let score = 0;
+
+  if (a.length > 4 && a === b) {
+    score += SCORE_WEIGHTS.exactUsername;
+
+    evidence.push({
+      signal: 'Exact normalized username match',
+      contribution: SCORE_WEIGHTS.exactUsername,
+    });
+
+    return score;
+  }
+
+  if (
+    a.length > 4 &&
+    b.length > 4 &&
+    (a.includes(b) || b.includes(a))
+  ) {
+    score += SCORE_WEIGHTS.partialUsername;
+
+    evidence.push({
+      signal: 'Partial username overlap',
+      contribution: SCORE_WEIGHTS.partialUsername,
+    });
+  }
+
+  if (
+    a.length >= 5 &&
+    b.length >= 5 &&
+    a.substring(0, 5) === b.substring(0, 5)
+  ) {
+    score += SCORE_WEIGHTS.prefixSimilarity;
+
+    evidence.push({
+      signal: 'Username prefix similarity',
+      contribution: SCORE_WEIGHTS.prefixSimilarity,
+    });
+  }
+
+  return score;
+};
+
+const compareMetadata = (
+  a: IdentifierMetadata,
+  b: IdentifierMetadata,
+  evidence: MatchEvidence[]
+): number => {
+  let score = 0;
+
+  if (
+    a.bio &&
+    b.bio &&
+    a.bio.trim().toLowerCase() === b.bio.trim().toLowerCase()
+  ) {
+    score += SCORE_WEIGHTS.matchingBio;
+
+    evidence.push({
+      signal: 'Matching profile metadata',
+      contribution: SCORE_WEIGHTS.matchingBio,
+    });
+  }
+
+  const days = calculateDateDistance(
+    a.creationDate,
+    b.creationDate
+  );
+
+  if (days !== null && days <= 1) {
+    score += SCORE_WEIGHTS.creationProximity;
+
+    evidence.push({
+      signal: 'Creation date proximity',
+      contribution: SCORE_WEIGHTS.creationProximity,
+    });
+  }
+
+  return score;
+};
+
+const compareIdentifiers = (
+  first: NormalizedIdentifier,
+  second: NormalizedIdentifier
+): CorrelationMatch | null => {
+  const evidence: MatchEvidence[] = [];
+
+  const confidence =
+    compareUsernames(
+      first.username,
+      second.username,
+      evidence
+    ) +
+    compareMetadata(
+      first.metadata,
+      second.metadata,
+      evidence
+    );
+
+  const normalizedConfidence = Math.min(
+    Number(confidence.toFixed(3)),
+    1
+  );
+
+  if (normalizedConfidence < 0.3) {
+    return null;
+  }
+
+  return {
+    identifier1: first.original,
+    identifier2: second.original,
+    confidence: normalizedConfidence,
+    evidence,
+  };
+};
+
+export const analyzeIdentifiers = (
+  identifiers: Identifier[]
+): CorrelationMatch[] => {
+  const normalized = identifiers.map(
+    normalizeIdentifier
+  );
+
   const matches: CorrelationMatch[] = [];
 
-  for (let i = 0; i < identifiers.length; i++) {
-    for (let j = i + 1; j < identifiers.length; j++) {
-      const id1 = identifiers[i];
-      const id2 = identifiers[j];
+  for (let i = 0; i < normalized.length; i++) {
+    for (let j = i + 1; j < normalized.length; j++) {
+      const match = compareIdentifiers(
+        normalized[i],
+        normalized[j]
+      );
 
-      let probability = 0;
-      let reasons: string[] = [];
-
-      // Pattern matching (e.g., username reuse)
-      const extractUsername = (id: Identifier) => {
-        if (id.platform === 'Matrix' || id.platform === 'XMPP') {
-          return id.value.split(':')[0].replace('@', '');
-        }
-        if (id.platform === 'Email') {
-           return id.value.split('@')[0];
-        }
-        return id.value.replace('@', ''); // Assuming Telegram uses @username
-      };
-
-      const user1 = extractUsername(id1).toLowerCase();
-      const user2 = extractUsername(id2).toLowerCase();
-
-      if (user1 === user2 && user1.length > 4) { // Ignore short common names
-        probability += 0.6;
-        reasons.push('Exact username match');
-      } else if (user1.includes(user2) || user2.includes(user1)) {
-        probability += 0.3;
-        reasons.push('Partial username overlap');
-      }
-
-      // Levenshtein distance could be used here for typos/variations, simplified for now
-      if (user1.length > 5 && user2.length > 5 && (user1.substring(0,5) === user2.substring(0,5))) {
-         probability += 0.2;
-         reasons.push('Similar username prefix');
-      }
-
-      // Metadata correlation
-      if (id1.metadata && id2.metadata) {
-        if (id1.metadata.bio && id2.metadata.bio && id1.metadata.bio === id2.metadata.bio) {
-          probability += 0.8;
-          reasons.push('Identical biography/status');
-        }
-        if (id1.metadata.creationDate && id2.metadata.creationDate) {
-           const diffTime = Math.abs(new Date(id1.metadata.creationDate).getTime() - new Date(id2.metadata.creationDate).getTime());
-           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-           if (diffDays <= 1) {
-              probability += 0.4;
-              reasons.push('Account creation temporal proximity');
-           }
-        }
-      }
-
-      probability = Math.min(1.0, probability); // Cap at 1.0
-
-      if (probability > 0.3) {
-        matches.push({
-          identifier1: id1,
-          identifier2: id2,
-          probability,
-          reason: reasons.join(', ')
-        });
+      if (match) {
+        matches.push(match);
       }
     }
   }
 
-  return matches.sort((a, b) => b.probability - a.probability);
+  return matches.sort(
+    (a, b) =>
+      b.confidence - a.confidence
+  );
 };
