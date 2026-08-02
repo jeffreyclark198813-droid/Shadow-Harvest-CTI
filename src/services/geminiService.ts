@@ -5,13 +5,24 @@ import { ReliabilityMetric, EntityAtomicContext, ConfidenceLevel } from "../type
 import { StochasticEvaluator } from "../utils/stochastic";
 import { telemetryService } from "./telemetryService";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+let aiClient: GoogleGenAI | null = null;
+
+function getAIClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === "your_api_key_here" || apiKey.includes("your_")) {
+      throw new Error("Invalid or missing GEMINI_API_KEY. Please configure it in the application settings.");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+}
 
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function executeWithReliabilityEngine<T>(
   operationName: string, 
-  fn: (model: string) => Promise<T>, 
+  fn: (ai: GoogleGenAI, model: string) => Promise<T>, 
   maxRetries = 10
 ): Promise<T> {
   const PRIMARY_MODEL = "gemini-3.5-flash";
@@ -24,7 +35,8 @@ async function executeWithReliabilityEngine<T>(
   for (let i = 0; i < maxRetries; i++) {
     const startTime = Date.now();
     try {
-      const result = await fn(currentModel);
+      const ai = getAIClient();
+      const result = await fn(ai, currentModel);
       
       // Atomic Telemetry Integration
       const telemetry: ReliabilityMetric = {
@@ -48,6 +60,10 @@ async function executeWithReliabilityEngine<T>(
       const status = error?.status || error?.error?.status || 'UNKNOWN';
       const code = error?.code || error?.error?.code || 'UNKNOWN';
       
+      if (errorString.includes('api key not valid') || errorString.includes('api_key_invalid')) {
+        throw new Error("Invalid Gemini API Key. Please update your API key in the application settings.");
+      }
+      
       const isQuotaExhaustion = 
         errorString.includes('429') || 
         errorString.includes('quota') ||
@@ -68,36 +84,36 @@ async function executeWithReliabilityEngine<T>(
         code === 503;
 
       // --- Failure Analysis Logging ---
-      console.warn(`[ReliabilityEngine] API Failure Detected in ${operationName}`);
-      console.warn(` - Attempt: ${i + 1}/${maxRetries}`);
-      console.warn(` - Model Endpoint: ${currentModel}`);
-      console.warn(` - Status/Code: ${status}/${code}`);
-      console.warn(` - Failure Type: ${isQuotaExhaustion ? 'QUOTA_EXHAUSTED' : isServerFailure ? 'SERVER_ERROR' : 'OTHER'}`);
+      console.log(`[ReliabilityEngine] API Failure Detected in ${operationName}`);
+      console.log(` - Attempt: ${i + 1}/${maxRetries}`);
+      console.log(` - Model Endpoint: ${currentModel}`);
+      console.log(` - Status/Code: ${status}/${code}`);
+      console.log(` - Failure Type: ${isQuotaExhaustion ? 'QUOTA_EXHAUSTED' : isServerFailure ? 'SERVER_ERROR' : 'OTHER'}`);
       
       if (isQuotaExhaustion && i < maxRetries - 1) {
         // Fallback Model Routing for Quota Exhaustion
         if (currentModel === PRIMARY_MODEL) {
-           console.warn(`[ReliabilityEngine] Quota Exhausted on primary. Shifting to ${FALLBACK_MODEL}`);
+           console.log(`[ReliabilityEngine] Quota Exhausted on primary. Shifting to ${FALLBACK_MODEL}`);
            currentModel = FALLBACK_MODEL;
         }
         
         // More aggressive exponential backoff for quota (starts at 8s, 16s, 32s...)
         const waitTime = Math.pow(2, i + 3) * 1000 + Math.random() * 2000;
-        console.warn(`[ReliabilityEngine] Quota retry in ${Math.round(waitTime)}ms...`);
+        console.log(`[ReliabilityEngine] Quota retry in ${Math.round(waitTime)}ms...`);
         await delay(waitTime);
         continue;
       }
       
       if (isServerFailure && i < maxRetries - 1) {
         const waitTime = Math.pow(2, i) * 3000 + Math.random() * 2000;
-        console.warn(`[ReliabilityEngine] Server retry in ${Math.round(waitTime)}ms...`);
+        console.log(`[ReliabilityEngine] Server retry in ${Math.round(waitTime)}ms...`);
         await delay(waitTime);
         continue;
       }
       
       // Non-retryable error or max retries exceeded
-      console.error(`[ReliabilityEngine] Terminal Failure in ${operationName}.`);
-      console.error(` - Last Error: ${errorString.slice(0, 500)}`);
+      console.log(`[ReliabilityEngine] Terminal Failure in ${operationName}.`);
+      console.log(` - Last Error: ${errorString.slice(0, 500)}`);
       throw error;
     }
   }
@@ -185,7 +201,7 @@ const parseJSONFromText = (text: string) => {
         try {
           return JSON.parse(cleanedCandidate);
         } catch (e4) {
-          console.error("Failed all JSON extraction attempts. Last candidate snippet:", candidate.slice(0, 100));
+          console.log("Failed all JSON extraction attempts. Last candidate snippet:", candidate.slice(0, 100));
         }
       }
     }
@@ -246,7 +262,7 @@ const parseJSONFromText = (text: string) => {
            
            return JSON.parse(tempStr);
        } catch (e5) {
-           console.error("Failed closing partial JSON", e5);
+           console.log("Failed closing partial JSON", e5);
        }
     }
     
@@ -260,7 +276,7 @@ export interface SWIResult {
 }
 
 export const analyzeSurfaceWeb = async (query: string, persona?: AIPersona): Promise<SWIResult> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Perform Surface Web Intelligence (SWI) on the following target: ${query}. 
@@ -285,7 +301,7 @@ export const analyzeSurfaceWeb = async (query: string, persona?: AIPersona): Pro
 };
 
 export const analyzeDeepWeb = async (targetData: string, persona?: AIPersona): Promise<string> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Analyze the following technical artifacts and persona data for Deep Web Intelligence (DWI):
@@ -375,7 +391,7 @@ export const analyzeDeepWeb = async (targetData: string, persona?: AIPersona): P
 };
 
 export const resolveEntities = async (data: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Resolve entities and construct a relationship graph from this intelligence data:
@@ -433,7 +449,7 @@ export const resolveEntities = async (data: string, persona?: AIPersona): Promis
 };
 
 export const generateThreatAssessment = async (intelligence: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Perform a comprehensive Threat Assessment based on the following intelligence:
@@ -483,7 +499,7 @@ export const generateThreatAssessment = async (intelligence: string, persona?: A
 };
 
 export const pollIntelligenceTelemetry = async (targetName: string, targetType: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Perform active intelligence telemetry analysis for the target '${targetName}' (${targetType}). 
@@ -515,7 +531,7 @@ export const pollIntelligenceTelemetry = async (targetName: string, targetType: 
 };
 
 export const generateNarrativeEvent = async (targetName: string, context: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Generate a dynamic narrative event for the investigation of '${targetName}'. 
@@ -555,7 +571,7 @@ export const generateNarrativeEvent = async (targetName: string, context: string
 };
 
 export const profilePersonaOSINT = async (personaLabel: string, metadata: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     // Step 1: Search and Research using Google Search Tool (No ResponseSchema)
     const searchResponse = await ai.models.generateContent({
       model,
@@ -631,7 +647,7 @@ export const profilePersonaOSINT = async (personaLabel: string, metadata: string
 };
 
 export const runAdvancedCorrelation = async (graphData: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Act as a Graph Theory Analytics Engine. Analyze the following Intelligence Graph representation:
@@ -688,7 +704,7 @@ export const runAdvancedCorrelation = async (graphData: string, persona?: AIPers
 };
 
 export const generateAdvancedPersonaProfile = async (personaLabel: string, intelligence: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Perform an advanced persona profiling on '${personaLabel}' based on the following intelligence:
@@ -747,7 +763,7 @@ export const generateAdvancedPersonaProfile = async (personaLabel: string, intel
 };
 
 export const generateAttributionReport = async (targetName: string, intelligence: string, graphData: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Act as an Attribution Engine for the target '${targetName}'.
@@ -788,7 +804,7 @@ export const generateAttributionReport = async (targetName: string, intelligence
 };
 
 export const analyzeImageArtifact = async (base64Image: string, mimeType: string, persona?: AIPersona): Promise<string> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: {
@@ -813,7 +829,7 @@ export const synthesizeIntelligence = async (
   focusAreas: string[],
   persona?: AIPersona
 ): Promise<string> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Synthesize the following aggregated intelligence utilizing a highly analytical research methodology on the target: '${targetName}'.
@@ -836,7 +852,7 @@ export const synthesizeIntelligence = async (
 };
 
 export const detectAnomalies = async (targetName: string, dataStream: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Act as a Stochastic Anomaly Detection Classifier for target '${targetName}'.
@@ -881,7 +897,7 @@ export const detectAnomalies = async (targetName: string, dataStream: string, pe
 };
 
 export const scanCodeRepositories = async (targetContext: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `Perform an automated intelligence scan of public code repositories and paste sites related to the following context:
@@ -932,35 +948,208 @@ export const scanCodeRepositories = async (targetContext: string, persona?: AIPe
 };
 
 export const traceFinancialFlows = async (walletData: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
-      contents: `Perform Advanced Financial Tracing utilizing blockchain explorers and clustering techniques on the following wallet/transaction data:
+      contents: `You are an expert Forensic Blockchain Analyst and Cryptocurrency Threat Intelligence Specialist.
+      Perform Advanced Phase 2 Financial Tracing on the following target & wallet data:
       ${walletData}
       
-      Tasks:
-      1. Analyze cryptocurrency transaction flows and detect interactions with major exchanges or tumblers/mixers.
-      2. Cluster related wallets to identify overarching financial operations.
-      3. Cross-reference outcomes with known sanction lists and flagged addresses.
+      Requirements for Analysis:
+      1. **Pattern & Obfuscation Analysis**: Identify advanced cryptocurrency obfuscation techniques including mixers/tumblers (e.g. Tornado Cash, ChipMixer, Sinbad), chain hopping (cross-chain bridges like Thorchain, Stargate, RenBridge, swap services like FixedFloat, ChangeNOW), peel chains (micro-splitting), DEX liquidity routing, privacy coin conversions (Monero XMR, Zcash), and smurfing/structuring.
+      2. **Actor & Exchange Attribution**: Correlate wallet addresses and clusters with known illicit actors (e.g. Lazarus Group APT38, Darknet Markets, Ransomware groups like LockBit, Scam drainers) and Virtual Asset Service Providers (regulated exchanges like Binance, Coinbase, Kraken vs OFAC-sanctioned non-compliant VASPs like Garantex, Suex).
+      3. **Complex Multi-Hop Flow Mapping**: Construct realistic multi-hop transaction flows detailing sequential movement from source wallets through intermediate protocols/bridges/mixers to ultimate destination entities.
+      4. **Risk Scoring & Sanction Checks**: Cross-reference with global sanctions (OFAC SDN, EU, UN, FinCEN) and calculate precise risk metrics.
+      5. **Investigation Insights**: Provide actionable takeaways for CTI analysts and law enforcement tracing.
       
       Return EXCLUSIVELY a JSON object structured as follows:
       {
-        "flowAnalysis": [ { "sourceWallet": "string", "destinationWallet": "string", "volume": "string", "notableInteraction": "string" } ],
-        "walletClusters": [ { "clusterId": "string", "wallets": ["string"], "behaviorType": "string" } ],
-        "flaggedCrossReferences": [ { "wallet": "string", "sanctionMatch": true, "details": "string" } ],
-        "summary": "string"
+        "riskMetrics": {
+          "overallRiskScore": 88,
+          "obfuscationLevel": "CRITICAL",
+          "illicitExposurePct": 65,
+          "sanctionExposurePct": 35,
+          "mixerUsageDetected": true,
+          "chainHoppingDetected": true,
+          "peelChainDetected": true
+        },
+        "obfuscationTechniques": [
+          {
+            "technique": "Tornado Cash Pool Mixing",
+            "category": "MIXER_TUMBLER",
+            "riskLevel": "CRITICAL",
+            "description": "Deposit of 100 ETH into Tornado Cash 10 ETH pool followed by multi-address withdrawal.",
+            "evidenceWallets": ["0x123...", "0x456..."],
+            "detectedVolume": "100 ETH ($340,000 USD)",
+            "mitigationStrategy": "Flag output wallets and apply heuristic temporal linkage analysis."
+          }
+        ],
+        "actorAttribution": [
+          {
+            "entityName": "Lazarus Group (APT38) Cybercrime Vault",
+            "entityType": "ILLICIT_ACTOR",
+            "jurisdiction": "DPRK / Unregulated",
+            "complianceStatus": "SANCTIONED_OFAC",
+            "associatedWallets": ["0x789...", "123abc..."],
+            "confidenceScore": 95,
+            "attributionNotes": "Matched cluster signatures associated with Horizon Bridge exploit laundering ops."
+          }
+        ],
+        "complexTransactionFlows": [
+          {
+            "flowId": "FLOW-ETH-BTC-01",
+            "chain": "Ethereum -> Thorchain -> Bitcoin",
+            "hops": [
+              {
+                "hopNumber": 1,
+                "fromAddress": "0xTargetAddress...",
+                "fromLabel": "Target Primary Wallet",
+                "toAddress": "0xRouterAddress...",
+                "toLabel": "Uniswap V3 Router",
+                "amount": "50.0 ETH",
+                "asset": "ETH",
+                "timestamp": "2026-03-12T14:22:10Z",
+                "protocolOrBridge": "Uniswap V3 Pool",
+                "isObfuscated": false,
+                "obfuscationType": "DEX Swap",
+                "txHash": "0xabc123..."
+              }
+            ]
+          }
+        ],
+        "flowAnalysis": [
+          {
+            "sourceWallet": "0x123...",
+            "destinationWallet": "0x456...",
+            "volume": "10.5 ETH",
+            "notableInteraction": "Interaction with Thorchain cross-chain bridge"
+          }
+        ],
+        "walletClusters": [
+          {
+            "clusterId": "CLUSTER-ALPHA-01",
+            "clusterName": "Lazarus Automated Cashout Ring",
+            "wallets": ["0x123...", "0x456..."],
+            "behaviorType": "Peel Chain / Rapid Liquidation",
+            "estimatedHoldings": "420.50 ETH",
+            "primaryChain": "Ethereum / Bitcoin",
+            "riskGrade": "CRITICAL"
+          }
+        ],
+        "flaggedCrossReferences": [
+          {
+            "wallet": "0x123...",
+            "sanctionMatch": true,
+            "sanctionList": "OFAC SDN List (Specially Designated Nationals)",
+            "details": "Directly listed on OFAC SDN under DPRK Cyber Sanctions.",
+            "firstSeen": "2025-11-04",
+            "lastSeen": "2026-02-18"
+          }
+        ],
+        "investigationInsights": [
+          {
+            "category": "ASSET_RECOVERY",
+            "title": "Immediate Freeze Request at Regulated VASP",
+            "finding": "Funds currently residing in Binance deposit address 0xBinanceDeposit...",
+            "recommendedAction": "Submit urgent MLAT/LEO emergency freeze request to Binance compliance."
+          }
+        ],
+        "summary": "Comprehensive executive CTI summary of financial tracing results..."
       }`,
       config: {
         systemInstruction: getSystemInstruction(persona),
-        maxOutputTokens: 8192, responseMimeType: "application/json",
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            riskMetrics: {
+              type: Type.OBJECT,
+              properties: {
+                overallRiskScore: { type: Type.NUMBER },
+                obfuscationLevel: { type: Type.STRING },
+                illicitExposurePct: { type: Type.NUMBER },
+                sanctionExposurePct: { type: Type.NUMBER },
+                mixerUsageDetected: { type: Type.BOOLEAN },
+                chainHoppingDetected: { type: Type.BOOLEAN },
+                peelChainDetected: { type: Type.BOOLEAN }
+              },
+              required: ["overallRiskScore", "obfuscationLevel", "illicitExposurePct", "sanctionExposurePct", "mixerUsageDetected", "chainHoppingDetected", "peelChainDetected"]
+            },
+            obfuscationTechniques: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  technique: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  riskLevel: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  evidenceWallets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  detectedVolume: { type: Type.STRING },
+                  mitigationStrategy: { type: Type.STRING }
+                },
+                required: ["technique", "category", "riskLevel", "description", "evidenceWallets", "detectedVolume", "mitigationStrategy"]
+              }
+            },
+            actorAttribution: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  entityName: { type: Type.STRING },
+                  entityType: { type: Type.STRING },
+                  jurisdiction: { type: Type.STRING },
+                  complianceStatus: { type: Type.STRING },
+                  associatedWallets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  confidenceScore: { type: Type.NUMBER },
+                  attributionNotes: { type: Type.STRING }
+                },
+                required: ["entityName", "entityType", "jurisdiction", "complianceStatus", "associatedWallets", "confidenceScore", "attributionNotes"]
+              }
+            },
+            complexTransactionFlows: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  flowId: { type: Type.STRING },
+                  chain: { type: Type.STRING },
+                  hops: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        hopNumber: { type: Type.NUMBER },
+                        fromAddress: { type: Type.STRING },
+                        fromLabel: { type: Type.STRING },
+                        toAddress: { type: Type.STRING },
+                        toLabel: { type: Type.STRING },
+                        amount: { type: Type.STRING },
+                        asset: { type: Type.STRING },
+                        timestamp: { type: Type.STRING },
+                        protocolOrBridge: { type: Type.STRING },
+                        isObfuscated: { type: Type.BOOLEAN },
+                        obfuscationType: { type: Type.STRING },
+                        txHash: { type: Type.STRING }
+                      },
+                      required: ["hopNumber", "fromAddress", "fromLabel", "toAddress", "toLabel", "amount", "asset", "timestamp", "protocolOrBridge", "isObfuscated", "obfuscationType", "txHash"]
+                    }
+                  }
+                },
+                required: ["flowId", "chain", "hops"]
+              }
+            },
             flowAnalysis: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
-                properties: { sourceWallet: { type: Type.STRING }, destinationWallet: { type: Type.STRING }, volume: { type: Type.STRING }, notableInteraction: { type: Type.STRING } },
+                properties: {
+                  sourceWallet: { type: Type.STRING },
+                  destinationWallet: { type: Type.STRING },
+                  volume: { type: Type.STRING },
+                  notableInteraction: { type: Type.STRING }
+                },
                 required: ["sourceWallet", "destinationWallet", "volume", "notableInteraction"]
               }
             },
@@ -968,21 +1157,59 @@ export const traceFinancialFlows = async (walletData: string, persona?: AIPerson
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
-                properties: { clusterId: { type: Type.STRING }, wallets: { type: Type.ARRAY, items: { type: Type.STRING } }, behaviorType: { type: Type.STRING } },
-                required: ["clusterId", "wallets", "behaviorType"]
+                properties: {
+                  clusterId: { type: Type.STRING },
+                  clusterName: { type: Type.STRING },
+                  wallets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  behaviorType: { type: Type.STRING },
+                  estimatedHoldings: { type: Type.STRING },
+                  primaryChain: { type: Type.STRING },
+                  riskGrade: { type: Type.STRING }
+                },
+                required: ["clusterId", "clusterName", "wallets", "behaviorType", "estimatedHoldings", "primaryChain", "riskGrade"]
               }
             },
             flaggedCrossReferences: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
-                properties: { wallet: { type: Type.STRING }, sanctionMatch: { type: Type.BOOLEAN }, details: { type: Type.STRING } },
-                required: ["wallet", "sanctionMatch", "details"]
+                properties: {
+                  wallet: { type: Type.STRING },
+                  sanctionMatch: { type: Type.BOOLEAN },
+                  sanctionList: { type: Type.STRING },
+                  details: { type: Type.STRING },
+                  firstSeen: { type: Type.STRING },
+                  lastSeen: { type: Type.STRING }
+                },
+                required: ["wallet", "sanctionMatch", "sanctionList", "details", "firstSeen", "lastSeen"]
+              }
+            },
+            investigationInsights: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  category: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                  finding: { type: Type.STRING },
+                  recommendedAction: { type: Type.STRING }
+                },
+                required: ["category", "title", "finding", "recommendedAction"]
               }
             },
             summary: { type: Type.STRING }
           },
-          required: ["flowAnalysis", "walletClusters", "flaggedCrossReferences", "summary"]
+          required: [
+            "riskMetrics",
+            "obfuscationTechniques",
+            "actorAttribution",
+            "complexTransactionFlows",
+            "flowAnalysis",
+            "walletClusters",
+            "flaggedCrossReferences",
+            "investigationInsights",
+            "summary"
+          ]
         }
       }
     });
@@ -991,7 +1218,7 @@ export const traceFinancialFlows = async (walletData: string, persona?: AIPerson
 };
 
 export const evaluateEthicalRisk = async (targetName: string, operationalContext: string, persona?: AIPersona): Promise<any> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: `You are acting as an objective Ethics and Compliance AI.
@@ -1048,7 +1275,7 @@ export const evaluateEthicalRisk = async (targetName: string, operationalContext
 };
 
 export const fingerprintInfrastructure = async (targetContext: string, persona?: AIPersona): Promise<any> => {
-  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: [
@@ -1095,7 +1322,7 @@ Return JSON matching this schema:
 };
 
 export const generateThreatActorProfile = async (targetContext: string, persona?: AIPersona): Promise<any> => {
-  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: [
@@ -1137,7 +1364,7 @@ Return JSON matching this schema:
 };
 
 export const runDarkWebScan = async (targetId: string, onionUrl: string): Promise<string> => {
-  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const prompt = `
       Act as an expert Dark Web Intelligence analyst.
       Analyze the provided onion service URL or forum thread context for Target ID: ${targetId}.
@@ -1165,13 +1392,13 @@ export const runDarkWebScan = async (targetId: string, onionUrl: string): Promis
       });
       return response.text || '';
     } catch (error: any) {
-      console.error("Dark Web Scan AI Error:", error);
+      console.log("Dark Web Scan AI Error:", error);
       throw error;
     }
   });
 };
 export const generateFictionalPersonas = async (targetContext: string, persona?: AIPersona): Promise<any> => {
-  return await executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return await executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
       model,
       contents: [
@@ -1209,7 +1436,7 @@ Return JSON matching this schema:
   });
 };
 export const generateAIAutocomplete = async (currentContext: string): Promise<string> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     try {
       const response = await ai.models.generateContent({
         model,
@@ -1224,7 +1451,7 @@ ${currentContext.slice(-500)}`,
       });
       return response.text?.trim() || '';
     } catch (error) {
-      console.error("AI Autocomplete failed:", error);
+      console.log("AI Autocomplete failed:", error);
       throw error;
     }
   });
@@ -1265,7 +1492,7 @@ export const restoreAndExpandData = async (
   mode: 'reconstruct' | 'osint_fusion' | 'graph_resolve',
   persona?: any
 ): Promise<RestorationResult> => {
-  return executeWithReliabilityEngine("Gemini_API_Call", async (model) => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const prompt = `You are a world-class scientific Cyber Threat Intelligence (CTI) & OSINT data restoration algorithm.
     Your mission is to analyze, normalize, and complete the following truncated, abbreviated, or fragmented intelligence artifact:
     

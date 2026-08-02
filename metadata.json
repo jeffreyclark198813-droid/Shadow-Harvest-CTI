@@ -1,59 +1,8 @@
 {
   "name": "Shadow Harvest CTI",
-  "description": "Advanced Cyber Threat Intelligence and OSINT Correlation Platform for digital infrastructure mapping, entity resolution, telemetry analysis, and authorized security operations.",
+  "description": "Advanced Cyber Threat Intelligence and OSINT Correlation Platform for digital infrastructure mapping and entity resolution.",
   "requestFramePermissions": [
     "camera",
-    "microphone",
-    "location",
-    "bluetooth",
-    "notifications",
-    "storage",
-    "network",
-    "nearby_devices",
-    "activity_recognition"
-  ],
-  "androidPermissions": {
-    "core": [
-      "INTERNET",
-      "ACCESS_NETWORK_STATE",
-      "ACCESS_WIFI_STATE",
-      "FOREGROUND_SERVICE",
-      "POST_NOTIFICATIONS"
-    ],
-    "device_intelligence": [
-      "CAMERA",
-      "RECORD_AUDIO",
-      "ACCESS_FINE_LOCATION",
-      "ACCESS_COARSE_LOCATION",
-      "BLUETOOTH_CONNECT",
-      "BLUETOOTH_SCAN",
-      "ACTIVITY_RECOGNITION"
-    ],
-    "data_management": [
-      "READ_MEDIA_IMAGES",
-      "READ_MEDIA_VIDEO",
-      "READ_MEDIA_AUDIO",
-      "WRITE_EXTERNAL_STORAGE"
-    ],
-    "security_operations": [
-      "USE_BIOMETRIC",
-      "VIBRATE",
-      "WAKE_LOCK"
-    ],
-    "background_processing": [
-      "FOREGROUND_SERVICE_DATA_SYNC",
-      "FOREGROUND_SERVICE_LOCATION",
-      "FOREGROUND_SERVICE_MICROPHONE",
-      "FOREGROUND_SERVICE_CAMERA"
-    ]
-  },
-  "developerFeatures": {
-    "debugMode": true,
-    "networkInspection": true,
-    "telemetryCollection": true,
-    "crashReporting": true,
-    "deviceDiagnostics": true,
-    "secureStorage": true,
-    "hardwareAcceleration": true
-  }
+    "microphone"
+  ]
 }

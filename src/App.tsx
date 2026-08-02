@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthGuard } from './components/AuthGuard';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Dashboard } from './components/Dashboard';
-import { TargetView } from './components/TargetView';
-import { Methodology } from './components/Methodology';
-import { CharacterCreation } from './components/CharacterCreation';
 import { Toaster } from './components/Toaster';
 import { SupportAndFeedback } from './components/SupportAndFeedback';
 import { subscribeToUserPersonas, subscribeToUserSettings, UserPersona, UserSettings } from './services/dbService';
 import { auth } from './firebase';
 import { Loader2 } from 'lucide-react';
+
+const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })));
+const TargetView = lazy(() => import('./components/TargetView').then(module => ({ default: module.TargetView })));
+const Methodology = lazy(() => import('./components/Methodology').then(module => ({ default: module.Methodology })));
+const CharacterCreation = lazy(() => import('./components/CharacterCreation').then(module => ({ default: module.CharacterCreation })));
 
 export default function App() {
   const [personas, setPersonas] = useState<UserPersona[]>([]);
@@ -61,7 +62,15 @@ export default function App() {
   }
 
   if (user && personas.length === 0) {
-    return <CharacterCreation onComplete={() => setLoading(true)} />;
+    return (
+      <Suspense fallback={
+        <div className="h-screen bg-black flex items-center justify-center text-[#00ff00] font-mono">
+          <Loader2 className="animate-spin" size={32} />
+        </div>
+      }>
+        <CharacterCreation onComplete={() => setLoading(true)} />
+      </Suspense>
+    );
   }
 
   return (
@@ -70,11 +79,17 @@ export default function App() {
         <Router>
           <Toaster />
           <SupportAndFeedback />
-          <Routes>
-            <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
-            <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />
-            <Route path="/methodology" element={<Methodology />} />
-          </Routes>
+          <Suspense fallback={
+            <div className="h-screen bg-black flex items-center justify-center text-[#00ff00] font-mono">
+              <Loader2 className="animate-spin" size={32} />
+            </div>
+          }>
+            <Routes>
+              <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
+              <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />
+              <Route path="/methodology" element={<Methodology />} />
+            </Routes>
+          </Suspense>
         </Router>
       </AuthGuard>
     </ErrorBoundary>

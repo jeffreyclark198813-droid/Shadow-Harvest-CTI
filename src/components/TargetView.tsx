@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ChevronLeft, Shield, Search, Database, Share2, 
   FileText, Loader2, CheckCircle2, Image as ImageIcon, Activity,
-  Zap, Radio, Globe, User, Cpu, BarChart3, EyeOff, GitMerge, Code2, Bitcoin, Download, Network, Scale, Link as LinkIcon, ShieldAlert
+  Zap, Radio, Globe, User, Cpu, BarChart3, EyeOff, GitMerge, Code2, Bitcoin, Download, Network, Scale, Link as LinkIcon, ShieldAlert, Server
 } from 'lucide-react';
 import { useEnduringState } from '../hooks/useEnduringState';
 import { Target, IntelligenceReport, ThreatAssessment, MonitoringEvent, NarrativeEvent, PersonaOSINT,
@@ -45,6 +45,7 @@ import { FictionalPersonaGenerationView } from './FictionalPersonaGenerationView
 import { PersonaLinkerView } from './PersonaLinkerView';
 import { IdentityCorrelatorView } from './IdentityCorrelatorView';
 import { DarkWebScannerView } from './DarkWebScannerView';
+import { ReconScanView } from './ReconScanView';
 import { generateStixBundle, downloadStixJson } from '../utils/stixExport';
 import { auth, db, doc, onSnapshot, updateDoc } from '../firebase';
 import ReactMarkdown from 'react-markdown';
@@ -83,7 +84,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
   const [generatingEvent, setGeneratingEvent] = useState(false);
   const [graphData, setGraphData] = useEnduringState<{ nodes: any[], edges: any[] }>(`${id}_graphData`, { nodes: [], edges: [] });
   const [correlationData, setCorrelationData] = useEnduringState<CorrelationData | undefined>(`${id}_correlationData`, undefined);
-  const [activeTab, setActiveTabRaw] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'link_personas' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics' | 'adversarial' | 'infrastructure_fp' | 'actor_template' | 'fictional_personas'>(() => {
+  const [activeTab, setActiveTabRaw] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'link_personas' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics' | 'adversarial' | 'infrastructure_fp' | 'actor_template' | 'fictional_personas' | 'recon'>(() => {
     // Try to load cached tab from session storage
     const cached = sessionStorage.getItem(`target_tab_${id}`);
     return (cached as any) || 'reports';
@@ -707,6 +708,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
               { id: 'fictional_personas', label: 'Fictional Gen', icon: User },
               { id: 'identity_correlator', label: 'Identity Correlator', icon: Network },
               { id: 'dark_web', label: 'Dark Web Scan', icon: Globe },
+              { id: 'recon', label: 'Recon', icon: Server },
             ].map((tab) => (
               <button 
                 key={tab.id}
@@ -836,6 +838,11 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                       onMergeEntities={handleMergeEntities}
                       loading={analyzing}
                     />
+                  </div>
+                )}
+                {activeTab === 'recon' && (
+                  <div className="max-w-6xl mx-auto">
+                    <ReconScanView targetId={id || ''} domain={target.name} />
                   </div>
                 )}
                 {activeTab === 'code' && (

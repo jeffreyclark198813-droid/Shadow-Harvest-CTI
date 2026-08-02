@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { auth } from '../firebase';
 import { 
   Terminal, Activity, Database, Search, Target as TargetIcon, 
-  Plus, ChevronRight, BarChart3, ShieldAlert, LogOut, BookOpen,
+  Plus, ChevronRight, BarChart3, ShieldAlert, LogOut, BookOpen, Network,
   User, Zap, Shield, Cpu, Lock, Globe, Filter, SlidersHorizontal, Trash, X, Star, Binary
 } from 'lucide-react';
 import { Target, subscribeToTargets, createTarget, deleteTarget, updateTargetPriority, UserPersona, UserSettings, incrementUserStat, unlockAchievement } from '../services/dbService';
+import { GraphDashboardView } from './GraphDashboardView';
+import { ThreatIntelligenceWidget } from './ThreatIntelligenceWidget';
 import { UserPersonaManager } from './UserPersonaManager';
 import { CTIOpsDashboard } from './CTIOpsDashboard';
 import { IntelligenceLibrary } from './IntelligenceLibrary';
@@ -132,198 +134,206 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
     switch (activeTab) {
       case 'targets':
         return (
-          <div className="space-y-6">
-            {/* Search and Filters */}
-            <div className="space-y-3 relative">
-              <div className="relative">
-                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input 
-                  type="text"
-                  placeholder="SEARCH INTELLIGENCE DATABASE..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  onFocus={() => setShowSearchHistory(true)}
-                  onBlur={() => setTimeout(() => setShowSearchHistory(false), 200)}
-                  onKeyDown={handleSearchKeyPress}
-                  className="w-full bg-harvest-card border border-harvest-border rounded-2xl px-12 py-3 text-sm 
-                             focus:border-harvest-accent/50 focus:bg-white/[0.02] outline-none transition-all uppercase tracking-widest"
-                />
-              </div>
-              
-              <AnimatePresence>
-                {showSearchHistory && recentSearches.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-12 left-0 right-0 bg-harvest-card border border-harvest-border rounded-xl shadow-2xl z-10 overflow-hidden"
-                  >
-                    {recentSearches.map((term, idx) => (
-                      <div 
-                        key={idx} 
-                        onClick={() => { setSearchTerm(term); setShowSearchHistory(false); }}
-                        className="flex items-center justify-between px-4 py-3 hover:bg-white/5 cursor-pointer text-sm font-mono text-gray-400 group"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Search size={14} className="text-gray-600" />
-                          <span>{term}</span>
-                        </div>
-                        <button 
-                          onClick={(e) => removeRecentSearch(e, term)}
-                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-all"
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              {/* Search and Filters */}
+              <div className="space-y-3 relative">
+                <div className="relative">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input 
+                    type="text"
+                    placeholder="SEARCH INTELLIGENCE DATABASE..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    onFocus={() => setShowSearchHistory(true)}
+                    onBlur={() => setTimeout(() => setShowSearchHistory(false), 200)}
+                    onKeyDown={handleSearchKeyPress}
+                    className="w-full bg-harvest-card border border-harvest-border rounded-2xl px-12 py-3 text-sm 
+                               focus:border-harvest-accent/50 focus:bg-white/[0.02] outline-none transition-all uppercase tracking-widest"
+                  />
+                </div>
+                
+                <AnimatePresence>
+                  {showSearchHistory && recentSearches.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute top-12 left-0 right-0 bg-harvest-card border border-harvest-border rounded-xl shadow-2xl z-10 overflow-hidden"
+                    >
+                      {recentSearches.map((term, idx) => (
+                        <div 
+                          key={idx} 
+                          onClick={() => { setSearchTerm(term); setShowSearchHistory(false); }}
+                          className="flex items-center justify-between px-4 py-3 hover:bg-white/5 cursor-pointer text-sm font-mono text-gray-400 group"
                         >
-                          <X size={14} />
+                          <div className="flex items-center gap-3">
+                            <Search size={14} className="text-gray-600" />
+                            <span>{term}</span>
+                          </div>
+                          <button 
+                            onClick={(e) => removeRecentSearch(e, term)}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-all"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+                  <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1">
+                    {[
+                      { id: 'all', label: 'All' },
+                      { id: 'priority', label: 'Priority' },
+                      { id: 'domain', label: 'Domains' },
+                      { id: 'persona', label: 'Personas' },
+                      { id: 'wallet', label: 'Wallets' },
+                      { id: 'ip', label: 'IPs' },
+                      { id: 'graph', label: 'Graph' },
+                      { id: 'telemetry', label: 'Telemetry' },
+                    ].map(chip => (
+                      <button
+                        key={chip.id}
+                        onClick={() => chip.id === 'telemetry' ? setActiveTab('telemetry') : chip.id === 'graph' ? setActiveTab('graph') : setFilterType(chip.id)}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
+                          (filterType === chip.id || (chip.id === 'telemetry' && (activeTab as string) === 'telemetry') || (chip.id === 'graph' && (activeTab as string) === 'graph'))
+                            ? 'bg-harvest-accent text-black' 
+                            : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1 ml-auto shrink-0">
+                    {[
+                      { id: 'all', label: 'Status' },
+                      { id: 'active', label: 'Active' },
+                      { id: 'pending', label: 'Pending' },
+                      { id: 'archived', label: 'Archived' },
+                    ].map(chip => (
+                      <button
+                        key={chip.id}
+                        onClick={() => setFilterStatus(chip.id)}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
+                          filterStatus === chip.id 
+                            ? 'bg-white text-black' 
+                            : 'text-gray-500 hover:text-gray-300'
+                        }`}
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Correlation Heatmap */}
+              <div className="mb-6">
+                <CorrelationHeatmap targets={targets} />
+              </div>
+
+              {/* Target Cards */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="mono-label text-gray-400 flex items-center gap-2">
+                    <TargetIcon size={12} className="text-harvest-accent" />
+                    PRIORITY ASSETS ({filteredTargets.length})
+                  </h2>
+                  <button className="p-1 px-2 bg-harvest-card rounded border border-harvest-border text-[9px] font-bold text-gray-500 flex items-center gap-1">
+                    <SlidersHorizontal size={10} />
+                    SORT
+                  </button>
+                </div>
+
+                {loading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="h-24 hardware-surface animate-pulse" />
+                  ))
+                ) : filteredTargets.length > 0 ? (
+                  filteredTargets.map((target) => (
+                    <motion.div
+                      key={target.id}
+                      whileHover={{ y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => navigate(`/target/${target.id}`)}
+                      className="hardware-surface p-4 flex items-center justify-between group active:bg-white/5 cursor-pointer relative overflow-hidden"
+                    >
+                      {target.status === 'active' && (
+                        <div className="absolute top-0 left-0 w-1 h-full bg-harvest-accent shadow-[0_0_10px_rgba(0,255,0,0.5)]" />
+                      )}
+                      <div className="flex items-center gap-4">
+                        <div className={`p-3 rounded-lg ${
+                          target.status === 'active' ? 'bg-harvest-accent/10' : 'bg-gray-800/30'
+                        }`}>
+                          {target.type === 'domain' && <Globe size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                          {target.type === 'persona' && <User size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                          {target.type === 'wallet' && <Zap size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                          {target.type === 'ip' && <Cpu size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-white group-hover:text-harvest-accent transition-colors">{target.name}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="mono-label !text-[9px]">{target.type}</span>
+                            <span className="w-1 h-1 rounded-full bg-gray-700" />
+                            <span className={`text-[9px] font-bold uppercase tracking-tighter ${
+                              target.status === 'active' ? 'text-harvest-accent' : 'text-gray-600'
+                            }`}>{target.status}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-right">
+                        <div className="text-right">
+                          <p className="text-[10px] font-mono font-bold text-harvest-accent">{target.confidenceScore || 0}%</p>
+                          <p className="mono-label !text-[8px]">Confidence</p>
+                        </div>
+                        <button
+                          onClick={(e) => handleTogglePriority(e, target)}
+                          className={`p-2 transition-all border border-transparent rounded ${
+                            target.isPriorityAsset 
+                              ? 'text-yellow-400 hover:bg-yellow-400/10 hover:border-yellow-400/30 opacity-100' 
+                              : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-0 group-hover:opacity-100'
+                          }`}
+                          title={target.isPriorityAsset ? "Remove Priority Status" : "Mark as Priority Asset"}
+                        >
+                          <Star size={16} fill={target.isPriorityAsset ? "currentColor" : "none"} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setQuickScanTarget(target);
+                          }}
+                          className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
+                          title="Quick Scan"
+                        >
+                          <Search size={16} />
+                        </button>
+                        <button 
+                          onClick={(e) => handleDeleteTarget(e, target.id as string)}
+                          className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
+                          title="Delete Target"
+                        >
+                          <Trash size={16} />
                         </button>
                       </div>
-                    ))}
-                  </motion.div>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="py-12 hardware-surface text-center bg-transparent border-dashed">
+                    <Database size={32} className="mx-auto text-gray-700 mb-3" />
+                    <p className="mono-label text-gray-600">No Intelligence Matches Found</p>
+                  </div>
                 )}
-              </AnimatePresence>
-
-              <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1">
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'priority', label: 'Priority' },
-                    { id: 'domain', label: 'Domains' },
-                    { id: 'persona', label: 'Personas' },
-                    { id: 'wallet', label: 'Wallets' },
-                    { id: 'ip', label: 'IPs' },
-                    { id: 'telemetry', label: 'Telemetry' },
-                  ].map(chip => (
-                    <button
-                      key={chip.id}
-                      onClick={() => chip.id === 'telemetry' ? setActiveTab('telemetry') : setFilterType(chip.id)}
-                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-                        (filterType === chip.id || (chip.id === 'telemetry' && (activeTab as string) === 'telemetry'))
-                          ? 'bg-harvest-accent text-black' 
-                          : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1 ml-auto shrink-0">
-                  {[
-                    { id: 'all', label: 'Status' },
-                    { id: 'active', label: 'Active' },
-                    { id: 'pending', label: 'Pending' },
-                    { id: 'archived', label: 'Archived' },
-                  ].map(chip => (
-                    <button
-                      key={chip.id}
-                      onClick={() => setFilterStatus(chip.id)}
-                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-                        filterStatus === chip.id 
-                          ? 'bg-white text-black' 
-                          : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      {chip.label}
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
-
-            {/* Correlation Heatmap */}
-            <div className="mb-6">
-              <CorrelationHeatmap targets={targets} />
-            </div>
-
-            {/* Target Cards */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="mono-label text-gray-400 flex items-center gap-2">
-                  <TargetIcon size={12} className="text-harvest-accent" />
-                  PRIORITY ASSETS ({filteredTargets.length})
-                </h2>
-                <button className="p-1 px-2 bg-harvest-card rounded border border-harvest-border text-[9px] font-bold text-gray-500 flex items-center gap-1">
-                  <SlidersHorizontal size={10} />
-                  SORT
-                </button>
-              </div>
-
-              {loading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="h-24 hardware-surface animate-pulse" />
-                ))
-              ) : filteredTargets.length > 0 ? (
-                filteredTargets.map((target) => (
-                  <motion.div
-                    key={target.id}
-                    whileHover={{ y: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => navigate(`/target/${target.id}`)}
-                    className="hardware-surface p-4 flex items-center justify-between group active:bg-white/5 cursor-pointer relative overflow-hidden"
-                  >
-                    {target.status === 'active' && (
-                      <div className="absolute top-0 left-0 w-1 h-full bg-harvest-accent shadow-[0_0_10px_rgba(0,255,0,0.5)]" />
-                    )}
-                    <div className="flex items-center gap-4">
-                      <div className={`p-3 rounded-lg ${
-                        target.status === 'active' ? 'bg-harvest-accent/10' : 'bg-gray-800/30'
-                      }`}>
-                        {target.type === 'domain' && <Globe size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                        {target.type === 'persona' && <User size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                        {target.type === 'wallet' && <Zap size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                        {target.type === 'ip' && <Cpu size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-white group-hover:text-harvest-accent transition-colors">{target.name}</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="mono-label !text-[9px]">{target.type}</span>
-                          <span className="w-1 h-1 rounded-full bg-gray-700" />
-                          <span className={`text-[9px] font-bold uppercase tracking-tighter ${
-                            target.status === 'active' ? 'text-harvest-accent' : 'text-gray-600'
-                          }`}>{target.status}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-right">
-                      <div className="text-right">
-                        <p className="text-[10px] font-mono font-bold text-harvest-accent">{target.confidenceScore || 0}%</p>
-                        <p className="mono-label !text-[8px]">Confidence</p>
-                      </div>
-                      <button
-                        onClick={(e) => handleTogglePriority(e, target)}
-                        className={`p-2 transition-all border border-transparent rounded ${
-                          target.isPriorityAsset 
-                            ? 'text-yellow-400 hover:bg-yellow-400/10 hover:border-yellow-400/30 opacity-100' 
-                            : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-0 group-hover:opacity-100'
-                        }`}
-                        title={target.isPriorityAsset ? "Remove Priority Status" : "Mark as Priority Asset"}
-                      >
-                        <Star size={16} fill={target.isPriorityAsset ? "currentColor" : "none"} />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setQuickScanTarget(target);
-                        }}
-                        className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
-                        title="Quick Scan"
-                      >
-                        <Search size={16} />
-                      </button>
-                      <button 
-                        onClick={(e) => handleDeleteTarget(e, target.id as string)}
-                        className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
-                        title="Delete Target"
-                      >
-                        <Trash size={16} />
-                      </button>
-                    </div>
-                  </motion.div>
-                ))
-              ) : (
-                <div className="py-12 hardware-surface text-center bg-transparent border-dashed">
-                  <Database size={32} className="mx-auto text-gray-700 mb-3" />
-                  <p className="mono-label text-gray-600">No Intelligence Matches Found</p>
-                </div>
-              )}
+            
+            {/* Sidebar Widget */}
+            <div className="lg:block hidden h-full">
+              <ThreatIntelligenceWidget context={searchTerm || "latest cyber threat intelligence"} />
             </div>
           </div>
         );
@@ -353,6 +363,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
               </button>
             </div>
             <AtomicContextViewer metrics={telemetry} />
+          </div>
+        );
+      case 'graph':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="mono-label text-gray-400 flex items-center gap-2">
+                <Network size={12} className="text-harvest-accent" />
+                INTELLIGENCE GRAPH
+              </h2>
+              <button 
+                onClick={() => setActiveTab('targets')}
+                className="text-[10px] text-gray-600 hover:text-white transition-colors uppercase tracking-widest"
+              >
+                Return to Database
+              </button>
+            </div>
+            <GraphDashboardView />
           </div>
         );
       case 'settings':

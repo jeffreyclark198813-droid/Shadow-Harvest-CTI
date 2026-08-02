@@ -282,6 +282,15 @@ export interface Anomaly {
   resolved?: boolean;
 }
 
+export interface ReconFinding {
+  id?: string;
+  targetId: string;
+  type: 'dns' | 'port' | 'subdomain';
+  value: string;
+  details?: any;
+  timestamp: any;
+}
+
 export const createTarget = async (target: Omit<Target, 'id' | 'createdAt' | 'updatedAt'>) => {
   const path = 'targets';
   try {
@@ -741,6 +750,30 @@ export const subscribeToAnomalies = (targetId: string, callback: (anomalies: Ano
   return onSnapshot(q, (snapshot) => {
     const anomalies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Anomaly));
     callback(anomalies);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const addReconFinding = async (finding: Omit<ReconFinding, 'id' | 'timestamp'>) => {
+  const path = `targets/${finding.targetId}/recon_findings`;
+  try {
+    const docRef = await addDoc(collection(db, path), {
+      ...finding,
+      timestamp: Timestamp.now()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const subscribeToReconFindings = (targetId: string, callback: (findings: ReconFinding[]) => void) => {
+  const path = `targets/${targetId}/recon_findings`;
+  const q = query(collection(db, path));
+  return onSnapshot(q, (snapshot) => {
+    const findings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ReconFinding));
+    callback(findings);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, path);
   });
