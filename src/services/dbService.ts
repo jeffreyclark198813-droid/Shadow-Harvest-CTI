@@ -821,21 +821,30 @@ export const exportUserData = async (userId: string): Promise<UserDataBundle> =>
     targets: []
   };
 
+  const safeGetDocs = async (colRef: any) => {
+    try {
+      return await getDocs(colRef);
+    } catch (err) {
+      console.warn("safeGetDocs warning:", err);
+      return { docs: [] };
+    }
+  };
+
   // 1. Settings
-  const settingsSnap = await getDocs(collection(db, `users/${userId}/settings`));
+  const settingsSnap = await safeGetDocs(collection(db, `users/${userId}/settings`));
   const mainSettings = settingsSnap.docs.find(d => d.id === 'main');
   if (mainSettings) bundle.settings = mainSettings.data() as UserSettings;
 
   // 2. Personas
-  const personasSnap = await getDocs(collection(db, `users/${userId}/personas`));
+  const personasSnap = await safeGetDocs(collection(db, `users/${userId}/personas`));
   bundle.personas = personasSnap.docs.map(d => ({ id: d.id, ...d.data() } as UserPersona));
 
   // 3. AI Personas
-  const aiPersonasSnap = await getDocs(collection(db, `users/${userId}/ai_personas`));
+  const aiPersonasSnap = await safeGetDocs(collection(db, `users/${userId}/ai_personas`));
   bundle.aiPersonas = aiPersonasSnap.docs.map(d => ({ id: d.id, ...d.data() } as AIPersona));
 
   // 4. Targets and Subcollections
-  const targetsSnap = await getDocs(query(collection(db, 'targets'), where('createdBy', '==', userId)));
+  const targetsSnap = await safeGetDocs(query(collection(db, 'targets'), where('createdBy', '==', userId)));
   
   for (const targetDoc of targetsSnap.docs) {
     const targetData = { id: targetDoc.id, ...targetDoc.data() } as Target;
@@ -844,10 +853,10 @@ export const exportUserData = async (userId: string): Promise<UserDataBundle> =>
     const subCollections = [
       'reports', 'threat_assessments', 'monitoring_events', 'narrative_events',
       'persona_osint', 'persona_profiles', 'attribution_reports',
-      'graph/nodes', 'graph/edges', 'synthesized_outputs', 'anomalies'
+      'synthesized_outputs', 'anomalies', 'recon_findings', 'threat_actor_profiles'
     ];
 
-    const results = await Promise.all(subCollections.map(sub => getDocs(collection(db, `targets/${targetId}/${sub}`))));
+    const results = await Promise.all(subCollections.map(sub => safeGetDocs(collection(db, `targets/${targetId}/${sub}`))));
 
     bundle.targets.push({
       ...targetData,
@@ -858,10 +867,10 @@ export const exportUserData = async (userId: string): Promise<UserDataBundle> =>
       personaOSINT: results[4].docs.map(d => ({ id: d.id, ...d.data() } as PersonaOSINT)),
       personaProfiles: results[5].docs.map(d => ({ id: d.id, ...d.data() } as AdvancedPersonaProfile)),
       attributionReports: results[6].docs.map(d => ({ id: d.id, ...d.data() } as AttributionReport)),
-      graphNodes: results[7].docs.map(d => ({ id: d.id, ...d.data() } as EntityNode)),
-      graphEdges: results[8].docs.map(d => ({ id: d.id, ...d.data() } as EntityEdge)),
-      synthesizedOutputs: results[9].docs.map(d => ({ id: d.id, ...d.data() } as SynthesizedOutput)),
-      anomalies: results[10].docs.map(d => ({ id: d.id, ...d.data() } as Anomaly))
+      synthesizedOutputs: results[7].docs.map(d => ({ id: d.id, ...d.data() } as SynthesizedOutput)),
+      anomalies: results[8].docs.map(d => ({ id: d.id, ...d.data() } as Anomaly)),
+      graphNodes: [],
+      graphEdges: []
     });
   }
 

@@ -803,6 +803,92 @@ export const generateAttributionReport = async (targetName: string, intelligence
   });
 };
 
+export const profileThreatActor = async (intelligence: string, persona?: AIPersona): Promise<any> => {
+  return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
+    const response = await ai.models.generateContent({
+      model,
+      contents: `Perform an in-depth threat actor profiling based on the following aggregated intelligence:
+      ${intelligence}
+      
+      Tasks:
+      1. Infrastructure Analysis: Identify patterns in observed domains, IPs, and technical signatures.
+      2. Identity/Identifier Analysis: Correlate usernames, aliases, email handles, and other identifiers.
+      3. Behavior Analysis: Detect patterns in activity cadence, operational security (OPSEC) habits, and tool usage.
+      4. Methodological Correlation: Correlate observed behaviors and artifacts to known threat actor methodologies (use MITRE ATT&CK as a framework).
+      5. Attribution: Assign an attribution confidence score (0.0-1.0) and describe the reasoning.
+      6. Prediction: Predict future behaviors, likely targets, or upcoming operational phases.
+      
+      Return EXCLUSIVELY a JSON object structured as follows:
+      {
+        "actorProfile": {
+           "infrastructurePatterns": ["string"],
+           "identifierClusters": ["string"],
+           "behavioralSignatures": ["string"],
+           "methodologyCorrelation": {
+             "techniqueId": "string",
+             "techniqueName": "string",
+             "description": "string"
+           },
+           "attribution": {
+             "confidenceScore": number,
+             "reasoning": "string"
+           },
+           "predictions": {
+             "likelyFutureTargets": ["string"],
+             "predictedBehaviors": ["string"]
+           }
+        }
+      }`,
+      config: {
+        systemInstruction: getSystemInstruction(persona),
+        maxOutputTokens: 8192, responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            actorProfile: {
+              type: Type.OBJECT,
+              properties: {
+                infrastructurePatterns: { type: Type.ARRAY, items: { type: Type.STRING } },
+                identifierClusters: { type: Type.ARRAY, items: { type: Type.STRING } },
+                behavioralSignatures: { type: Type.ARRAY, items: { type: Type.STRING } },
+                methodologyCorrelation: {
+                  type: Type.OBJECT,
+                  properties: {
+                    techniqueId: { type: Type.STRING },
+                    techniqueName: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                  },
+                  required: ["techniqueId", "techniqueName", "description"]
+                },
+                attribution: {
+                  type: Type.OBJECT,
+                  properties: {
+                    confidenceScore: { type: Type.NUMBER },
+                    reasoning: { type: Type.STRING }
+                  },
+                  required: ["confidenceScore", "reasoning"]
+                },
+                predictions: {
+                  type: Type.OBJECT,
+                  properties: {
+                    likelyFutureTargets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    predictedBehaviors: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  },
+                  required: ["likelyFutureTargets", "predictedBehaviors"]
+                }
+              },
+              required: ["infrastructurePatterns", "identifierClusters", "behavioralSignatures", "methodologyCorrelation", "attribution", "predictions"]
+            }
+          },
+          required: ["actorProfile"]
+        }
+      }
+    });
+
+    return parseJSONFromText(response.text || "{}");
+  });
+};
+
 export const analyzeImageArtifact = async (base64Image: string, mimeType: string, persona?: AIPersona): Promise<string> => {
   return executeWithReliabilityEngine("Gemini_API_Call", async (ai, model) => {
     const response = await ai.models.generateContent({
@@ -1328,28 +1414,38 @@ export const generateThreatActorProfile = async (targetContext: string, persona?
       contents: [
         {
           role: "user",
-          parts: [{ text: `Analyze the correlated intelligence to identify and profile distinct threat actors. For each actor, detail their likely TTPs (Tactics, Techniques, and Procedures), assess their technical sophistication, and provide a confidence score for the attribution based on the evidence. Output this in a structured format suitable for threat intelligence platforms.
-
-Intelligence:
-${targetContext}
-
-Return JSON matching this schema:
-{
-  "actors": [
-    {
-      "actorName": "Designation or moniker",
-      "technicalSophistication": "High",
-      "observedInfrastructure": ["IPs", "Domains", "ASNs"],
-      "ttps": [{"tactic": "Initial Access", "technique": "Phishing", "description": "Spearphishing with malicious payloads"}],
-      "historicalActivity": ["Timeline of campaigns"],
-      "associates": ["Persona A", "Group B"],
-      "financialIndicators": ["Wallet addresses", "Transaction patterns"],
-      "attributionConfidence": "High",
-      "executiveSummary": "Brief overview"
-    }
-  ]
-}
-`}]
+          parts: [{ text: `Perform an in-depth threat actor profiling based on the following aggregated intelligence:
+      ${targetContext}
+      
+      Tasks:
+      1. Infrastructure Analysis: Identify patterns in observed domains, IPs, and technical signatures.
+      2. Identity/Identifier Analysis: Correlate usernames, aliases, email handles, and other identifiers.
+      3. Behavior Analysis: Detect patterns in activity cadence, operational security (OPSEC) habits, and tool usage.
+      4. Methodological Correlation: Correlate observed behaviors and artifacts to known threat actor methodologies (use MITRE ATT&CK as a framework).
+      5. Attribution: Assign an attribution confidence score (0.0-1.0) and describe the reasoning.
+      6. Prediction: Predict future behaviors, likely targets, or upcoming operational phases.
+      
+      Return EXCLUSIVELY a JSON object structured as follows:
+      {
+        "actorProfile": {
+           "infrastructurePatterns": ["string"],
+           "identifierClusters": ["string"],
+           "behavioralSignatures": ["string"],
+           "methodologyCorrelation": {
+             "techniqueId": "string",
+             "techniqueName": "string",
+             "description": "string"
+           },
+           "attribution": {
+             "confidenceScore": number,
+             "reasoning": "string"
+           },
+           "predictions": {
+             "likelyFutureTargets": ["string"],
+             "predictedBehaviors": ["string"]
+           }
+        }
+      }`}]
         }
       ],
       config: {

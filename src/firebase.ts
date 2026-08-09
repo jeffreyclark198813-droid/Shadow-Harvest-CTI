@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged, User } from 'firebase/auth';
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore, collection, collectionGroup, doc, setDoc, getDoc, getDocs, query, where, onSnapshot, Timestamp, addDoc, updateDoc, deleteDoc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -12,21 +12,21 @@ export const googleProvider = new GoogleAuthProvider();
 
 export { 
   collection, collectionGroup, doc, setDoc, getDoc, getDocs, query, where, onSnapshot, 
-  Timestamp, addDoc, updateDoc, deleteDoc, signInWithPopup, onAuthStateChanged 
+  Timestamp, addDoc, updateDoc, deleteDoc, signInWithPopup, createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged 
 };
 export type { User };
 
-// Connection test
-async function testConnection() {
+// Connection test is handled lazily to avoid blocking module load or throwing on cold starts
+export async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
+    return true;
   } catch (error) {
-    if (error instanceof Error && (error.message.includes('the client is offline') || error.message.includes('unavailable'))) {
-      console.error("Please check your Firebase configuration. The client is offline or unavailable.");
-    }
+    console.warn("Firestore connection check deferred: client is currently in offline mode.");
+    return false;
   }
 }
-testConnection();
 
 export enum OperationType {
   CREATE = 'create',

@@ -292,6 +292,50 @@
         "resolved": { "type": "boolean" }
       },
       "required": ["targetId", "type", "severity", "description", "timestamp"]
+    },
+    "ThreatActorProfile": {
+      "title": "Threat Actor Profile",
+      "description": "An AI-generated profile of a threat actor.",
+      "type": "object",
+      "properties": {
+        "targetId": { "type": "string" },
+        "actorProfile": {
+           "type": "object",
+           "properties": {
+             "infrastructurePatterns": { "type": "array", "items": { "type": "string" } },
+             "identifierClusters": { "type": "array", "items": { "type": "string" } },
+             "behavioralSignatures": { "type": "array", "items": { "type": "string" } },
+             "methodologyCorrelation": {
+               "type": "object",
+               "properties": {
+                 "techniqueId": { "type": "string" },
+                 "techniqueName": { "type": "string" },
+                 "description": { "type": "string" }
+               },
+               "required": ["techniqueId", "techniqueName", "description"]
+             },
+             "attribution": {
+               "type": "object",
+               "properties": {
+                 "confidenceScore": { "type": "number" },
+                 "reasoning": { "type": "string" }
+               },
+               "required": ["confidenceScore", "reasoning"]
+             },
+             "predictions": {
+               "type": "object",
+               "properties": {
+                 "likelyFutureTargets": { "type": "array", "items": { "type": "string" } },
+                 "predictedBehaviors": { "type": "array", "items": { "type": "string" } }
+               },
+               "required": ["likelyFutureTargets", "predictedBehaviors"]
+             }
+           },
+           "required": ["infrastructurePatterns", "identifierClusters", "behavioralSignatures", "methodologyCorrelation", "attribution", "predictions"]
+        },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["targetId", "actorProfile", "timestamp"]
     }
   },
   "firestore": {
@@ -354,6 +398,10 @@
     "/targets/{targetId}/anomalies/{anomalyId}": {
       "schema": "Anomaly",
       "description": "Detected anomalies for a specific target."
+    },
+    "/targets/{targetId}/threat_actor_profiles/{profileId}": {
+      "schema": "ThreatActorProfile",
+      "description": "AI-generated threat actor profiles."
     }
   }
 }

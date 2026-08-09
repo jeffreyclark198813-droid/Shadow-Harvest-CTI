@@ -1,6 +1,7 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthGuard } from './components/AuthGuard';
+import { ThemeProvider } from './components/ThemeProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Toaster } from './components/Toaster';
 import { SupportAndFeedback } from './components/SupportAndFeedback';
@@ -74,24 +75,26 @@ export default function App() {
   }
 
   return (
-    <ErrorBoundary>
-      <AuthGuard>
-        <Router>
-          <Toaster />
-          <SupportAndFeedback />
-          <Suspense fallback={
-            <div className="h-screen bg-black flex items-center justify-center text-[#00ff00] font-mono">
-              <Loader2 className="animate-spin" size={32} />
-            </div>
-          }>
-            <Routes>
-              <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
-              <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />
-              <Route path="/methodology" element={<Methodology />} />
-            </Routes>
-          </Suspense>
-        </Router>
-      </AuthGuard>
-    </ErrorBoundary>
+    <ThemeProvider>
+      <ErrorBoundary>
+        <AuthGuard>
+          <Router>
+            <Toaster />
+            <SupportAndFeedback />
+            <Suspense fallback={
+              <div className="h-screen bg-black flex items-center justify-center text-[#00ff00] font-mono">
+                <Loader2 className="animate-spin" size={32} />
+              </div>
+            }>
+              <Routes>
+                <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
+                <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />
+                <Route path="/methodology" element={<Methodology />} />
+              </Routes>
+            </Suspense>
+          </Router>
+        </AuthGuard>
+      </ErrorBoundary>
+    </ThemeProvider>
   );
 }

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, saveUserSettings } from '../services/dbService';
 import { auth } from '../firebase';
-import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff, Network } from 'lucide-react';
+import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff, Network, Sun, Moon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { DynamicAPIEndpointRegistry } from './DynamicAPIEndpointRegistry';
+import { useTheme } from './ThemeProvider';
 
 interface SystemSettingsProps {
   settings: UserSettings | null;
@@ -12,7 +13,8 @@ interface SystemSettingsProps {
 export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
   const [role, setRole] = useState<'admin' | 'moderator' | 'user'>(settings?.role || 'admin');
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'rbac' | 'kafka' | 'integrations' | 'anonymity'>('rbac');
+  const [activeTab, setActiveTab] = useState<'rbac' | 'kafka' | 'integrations' | 'anonymity' | 'theme'>('rbac');
+  const { theme, toggleTheme, setTheme } = useTheme();
 
   const handleSaveRole = async () => {
     if (!auth.currentUser || !settings) return;
@@ -22,7 +24,6 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
         ...settings,
         role: role
       });
-      // In a real app we might reload or state will update
     } catch (e) {
       console.error(e);
     } finally {
@@ -32,7 +33,7 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-4 border-b border-harvest-border">
+      <div className="flex flex-wrap gap-4 border-b border-harvest-border">
         <button
           onClick={() => setActiveTab('rbac')}
           className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'rbac' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
@@ -56,6 +57,12 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
           className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'anonymity' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
         >
           Anonymity & OPSEC
+        </button>
+        <button
+          onClick={() => setActiveTab('theme')}
+          className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'theme' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
+        >
+          Theme & Appearance
         </button>
       </div>
 
@@ -223,6 +230,52 @@ resource "confluent_kafka_topic" "raw_events" {
                   <span className="text-red-500 font-bold">WARNING:</span> Enabling TOR routing may trigger rate-limiting or captchas on certain target APIs. Ensure that strict proxy rotation is active if conducting automated OSINT scraping.
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'theme' && (
+        <div className="hardware-surface p-6 space-y-6">
+          <h3 className="mono-label flex items-center gap-2 text-white">
+            <Sun size={14} className="text-harvest-accent"/>
+            Theme & Appearance Settings
+          </h3>
+          <p className="text-[11px] font-mono text-gray-400">
+            Customize the visual appearance and interface color scheme for operational visibility.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div 
+              onClick={() => setTheme('dark')}
+              className={`p-5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${theme === 'dark' ? 'bg-harvest-accent/10 border-harvest-accent shadow-[0_0_15px_rgba(0,255,0,0.15)]' : 'bg-black/50 border-white/5 hover:border-white/20'}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-black rounded-lg border border-white/10 text-harvest-accent">
+                  <Moon size={20} />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white uppercase tracking-wider">Dark Mode (Default)</div>
+                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">Optimized for low-light environments and tactical operations.</div>
+                </div>
+              </div>
+              {theme === 'dark' && <div className="w-3 h-3 rounded-full bg-harvest-accent shadow-[0_0_8px_rgba(0,255,0,0.8)]" />}
+            </div>
+
+            <div 
+              onClick={() => setTheme('light')}
+              className={`p-5 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${theme === 'light' ? 'bg-harvest-accent/10 border-harvest-accent shadow-[0_0_15px_rgba(0,255,0,0.15)]' : 'bg-black/50 border-white/5 hover:border-white/20'}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-white/10 rounded-lg border border-white/10 text-yellow-400">
+                  <Sun size={20} />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-white uppercase tracking-wider">Light Mode</div>
+                  <div className="text-[10px] text-gray-500 font-mono mt-0.5">High contrast daylight visibility mode for well-lit environments.</div>
+                </div>
+              </div>
+              {theme === 'light' && <div className="w-3 h-3 rounded-full bg-harvest-accent shadow-[0_0_8px_rgba(0,255,0,0.8)]" />}
             </div>
           </div>
         </div>
