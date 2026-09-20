@@ -10,7 +10,7 @@ interface State {
   errorInfo: string | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
+export class SystemShield extends Component<Props, State> {
   public state: State = {
     hasError: false,
     errorInfo: null
@@ -60,7 +60,6 @@ export class ErrorBoundary extends Component<Props, State> {
         </div>
       );
     }
-
     return this.props.children;
   }
 }

@@ -4,9 +4,13 @@ import { auth } from '../firebase';
 import { 
   Terminal, Activity, Database, Search, Target as TargetIcon, 
   Plus, ChevronRight, BarChart3, ShieldAlert, LogOut, BookOpen, Network,
-  User, Zap, Shield, Cpu, Lock, Globe, Filter, SlidersHorizontal, Trash, X, Star, Binary
+  User, Zap, Shield, Cpu, Lock, Globe, Filter, SlidersHorizontal, Trash, X, Star, Binary, Scale,
+  RefreshCw, Clock, Sparkles, Bell
 } from 'lucide-react';
-import { Target, subscribeToTargets, createTarget, deleteTarget, updateTargetPriority, UserPersona, UserSettings, incrementUserStat, unlockAchievement } from '../services/dbService';
+import { 
+  Target, subscribeToTargets, createTarget, deleteTarget, updateTargetPriority, 
+  UserPersona, UserSettings, incrementUserStat, unlockAchievement, fetchTargetsOnce 
+} from '../services/dbService';
 import { GraphDashboardView } from './GraphDashboardView';
 import { ThreatIntelligenceWidget } from './ThreatIntelligenceWidget';
 import { UserPersonaManager } from './UserPersonaManager';
@@ -21,8 +25,29 @@ import { QuickScanModal } from './QuickScanModal';
 import { CorrelationHeatmap } from './CorrelationHeatmap';
 import { CollaborativeWorkspace } from './CollaborativeWorkspace';
 import { AtomicContextViewer } from './AtomicContextViewer';
+import { EpistemicConstitutionView } from './EpistemicConstitutionView';
+import { UniversalGovSecFrameworkView } from './UniversalGovSecFrameworkView';
+import { ThreatVisualization } from './ThreatVisualization';
+import { AutomatedAlertsCenter } from './AutomatedAlertsCenter';
+import { DCOIPDashboard } from './DCOIPDashboard';
+import { IPASNGraphView } from './IPASNGraphView';
+import { NetworkTopology } from './NetworkTopology';
 import { telemetryService } from '../services/telemetryService';
 import { ReliabilityMetric } from '../types/atomic';
+import { GlobalEntropyHeatmap } from './GlobalEntropyHeatmap';
+import { TemporalThreatHeatmap } from './TemporalThreatHeatmap';
+import { ProvenanceModal } from './ProvenanceModal';
+import { TemporalEngine } from './TemporalEngine';
+import { InferenceEngine } from './InferenceEngine';
+import { DataSourceRegistry } from './DataSourceRegistry';
+import { SocialNetworkAnalysisView } from './SocialNetworkAnalysisView';
+import { ThreatContextualizationView } from './ThreatContextualizationView';
+import { DataAnonymizationView } from './DataAnonymizationView';
+import { InfrastructureThreatVisualizer } from './InfrastructureThreatVisualizer';
+import { ThreatSearchFilterBar, ThreatFilterCriteria } from './ThreatSearchFilterBar';
+import { RateLimitAlert } from './RateLimitAlert';
+import { useAutoRefreshThreats } from '../hooks/useAutoRefreshThreats';
+import { useLiveMode } from '../context/LiveModeContext';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface DashboardProps {
@@ -34,17 +59,62 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, settings }) => {
   const [targets, setTargets] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
   const [isAdding, setIsAdding] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('targets');
-  const [showSearchHistory, setShowSearchHistory] = useState(false);
   const [quickScanTarget, setQuickScanTarget] = useState<Target | null>(null);
   const [newTarget, setNewTarget] = useState({ name: '', type: 'domain' as any, status: 'pending' as any });
   const [telemetry, setTelemetry] = useState<ReliabilityMetric[]>([]);
+  const [provenanceTarget, setProvenanceTarget] = useState<Target | null>(null);
+  const [showVisualizer, setShowVisualizer] = useState(true);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  
+  // Advanced Threat Filters State
+  const [filters, setFilters] = useState<ThreatFilterCriteria>({
+    searchTerm: '',
+    threatLevel: 'all',
+    entityType: 'all',
+    status: 'all',
+    dateRange: 'all',
+    epistemicLevel: 'all',
+    minConfidence: 0
+  });
+
+  // Debounce logic for AI components
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(filters.searchTerm);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [filters.searchTerm]);
+
   const navigate = useNavigate();
+
+  // Auto-Refresh & Background Polling Hook
+  const { registerRefreshHandler } = useLiveMode();
+
+  const handleFetchTargets = async () => {
+    const user = auth.currentUser;
+    if (!user || !activePersona) return;
+    const freshTargets = await fetchTargetsOnce(user.uid, activePersona.id || null);
+    if (freshTargets.length > 0) {
+      setTargets(freshTargets);
+    }
+  };
+
+  const { secondsLeft, isRefreshing, lastRefreshedAt, manualRefresh, isAutoRefreshActive } = useAutoRefreshThreats({
+    intervalSeconds: settings?.autoRefreshInterval !== undefined ? settings.autoRefreshInterval : 30,
+    onRefresh: handleFetchTargets,
+    enabled: true
+  });
+
+  // Register with Global Live Mode Context
+  useEffect(() => {
+    const unregister = registerRefreshHandler('dashboard_threats', handleFetchTargets);
+    return () => {
+      unregister();
+    };
+  }, [activePersona]);
 
   useEffect(() => {
     const unsub = telemetryService.subscribe(setTelemetry);
@@ -54,7 +124,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
   useEffect(() => {
     const saved = localStorage.getItem('dwi_recent_searches');
     if (saved) {
-      setRecentSearches(JSON.parse(saved));
+      try {
+        setRecentSearches(JSON.parse(saved));
+      } catch (e) {
+        console.error(e);
+      }
     }
   }, []);
 
@@ -72,18 +146,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
     };
   }, [activePersona]);
 
-  const handleSearchKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && searchTerm.trim()) {
-      const updated = [searchTerm.trim(), ...recentSearches.filter(s => s.toLowerCase() !== searchTerm.trim().toLowerCase())].slice(0, 5);
-      setRecentSearches(updated);
-      localStorage.setItem('dwi_recent_searches', JSON.stringify(updated));
-      setShowSearchHistory(false);
-    }
+  const handleSelectRecentSearch = (term: string) => {
+    setFilters(prev => ({ ...prev, searchTerm: term }));
   };
 
-  const removeRecentSearch = (e: React.MouseEvent, term: string) => {
-    e.stopPropagation();
+  const handleRemoveRecentSearch = (term: string) => {
     const updated = recentSearches.filter(s => s !== term);
+    setRecentSearches(updated);
+    localStorage.setItem('dwi_recent_searches', JSON.stringify(updated));
+  };
+
+  const saveRecentSearchTerm = (term: string) => {
+    if (!term.trim()) return;
+    const updated = [term.trim(), ...recentSearches.filter(s => s.toLowerCase() !== term.trim().toLowerCase())].slice(0, 6);
     setRecentSearches(updated);
     localStorage.setItem('dwi_recent_searches', JSON.stringify(updated));
   };
@@ -122,223 +197,273 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
     setNewTarget({ name: '', type: 'domain', status: 'pending' });
   };
 
+  // Comprehensive Multi-Dimensional Filtering Logic
   const filteredTargets = targets.filter(t => {
-    const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'all' || 
-                        (filterType === 'priority' ? t.isPriorityAsset : t.type === filterType);
-    const matchesStatus = filterStatus === 'all' || t.status === filterStatus;
-    return matchesSearch && matchesType && matchesStatus;
+    // Search Term
+    if (filters.searchTerm.trim()) {
+      const q = filters.searchTerm.toLowerCase().trim();
+      const matchName = t.name.toLowerCase().includes(q);
+      const matchId = (t.id || '').toLowerCase().includes(q);
+      const matchType = (t.type || '').toLowerCase().includes(q);
+      if (!matchName && !matchId && !matchType) return false;
+    }
+
+    // Entity Type
+    if (filters.entityType !== 'all') {
+      if (filters.entityType === 'priority' && !t.isPriorityAsset) return false;
+      if (filters.entityType === 'sip_trunk' && (t.type as string) !== 'sip_trunk' && t.type !== 'ip') return false;
+      if (filters.entityType === 'infrastructure' && t.type !== 'ip' && t.type !== 'domain') return false;
+      if (filters.entityType !== 'priority' && filters.entityType !== 'sip_trunk' && filters.entityType !== 'infrastructure') {
+        if ((t.type as string) !== filters.entityType) return false;
+      }
+    }
+
+    // Status
+    if (filters.status !== 'all' && t.status !== filters.status) return false;
+
+    // Minimum Confidence Score
+    if (filters.minConfidence > 0 && (t.confidenceScore || 0) < filters.minConfidence) return false;
+
+    // Threat Level Severity
+    if (filters.threatLevel !== 'all') {
+      const score = t.confidenceScore || 0;
+      if (filters.threatLevel === 'critical' && score < 80) return false;
+      if (filters.threatLevel === 'high' && (score < 60 || score >= 80)) return false;
+      if (filters.threatLevel === 'medium' && (score < 40 || score >= 60)) return false;
+      if (filters.threatLevel === 'low' && score >= 40) return false;
+    }
+
+    return true;
   });
 
   const renderContent = () => {
     switch (activeTab) {
       case 'targets':
         return (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              {/* Search and Filters */}
-              <div className="space-y-3 relative">
-                <div className="relative">
-                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
-                  <input 
-                    type="text"
-                    placeholder="SEARCH INTELLIGENCE DATABASE..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    onFocus={() => setShowSearchHistory(true)}
-                    onBlur={() => setTimeout(() => setShowSearchHistory(false), 200)}
-                    onKeyDown={handleSearchKeyPress}
-                    className="w-full bg-harvest-card border border-harvest-border rounded-2xl px-12 py-3 text-sm 
-                               focus:border-harvest-accent/50 focus:bg-white/[0.02] outline-none transition-all uppercase tracking-widest"
-                  />
+          <div className="space-y-6">
+            {/* Global API Rate Limit Alert (Monitors GEMINI_MAX_REQUESTS_PER_MINUTE) */}
+            <RateLimitAlert />
+
+            {/* Top Tactical Status Bar with Live Auto-Refresh Cadence HUD */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-black/40 border border-harvest-border rounded-2xl">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${isAutoRefreshActive ? 'bg-harvest-accent animate-ping' : 'bg-gray-600'}`} />
+                  <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
+                    {isAutoRefreshActive ? 'INTELLIGENCE STREAM ACTIVE' : 'MANUAL SYNC MODE'}
+                  </span>
                 </div>
-                
-                <AnimatePresence>
-                  {showSearchHistory && recentSearches.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="absolute top-12 left-0 right-0 bg-harvest-card border border-harvest-border rounded-xl shadow-2xl z-10 overflow-hidden"
-                    >
-                      {recentSearches.map((term, idx) => (
-                        <div 
-                          key={idx} 
-                          onClick={() => { setSearchTerm(term); setShowSearchHistory(false); }}
-                          className="flex items-center justify-between px-4 py-3 hover:bg-white/5 cursor-pointer text-sm font-mono text-gray-400 group"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Search size={14} className="text-gray-600" />
-                            <span>{term}</span>
-                          </div>
-                          <button 
-                            onClick={(e) => removeRecentSearch(e, term)}
-                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-gray-500 hover:text-white transition-all"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-                  <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1">
-                    {[
-                      { id: 'all', label: 'All' },
-                      { id: 'priority', label: 'Priority' },
-                      { id: 'domain', label: 'Domains' },
-                      { id: 'persona', label: 'Personas' },
-                      { id: 'wallet', label: 'Wallets' },
-                      { id: 'ip', label: 'IPs' },
-                      { id: 'graph', label: 'Graph' },
-                      { id: 'telemetry', label: 'Telemetry' },
-                    ].map(chip => (
-                      <button
-                        key={chip.id}
-                        onClick={() => chip.id === 'telemetry' ? setActiveTab('telemetry') : chip.id === 'graph' ? setActiveTab('graph') : setFilterType(chip.id)}
-                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-                          (filterType === chip.id || (chip.id === 'telemetry' && (activeTab as string) === 'telemetry') || (chip.id === 'graph' && (activeTab as string) === 'graph'))
-                            ? 'bg-harvest-accent text-black' 
-                            : 'text-gray-500 hover:text-gray-300'
-                        }`}
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex bg-harvest-card rounded-full border border-harvest-border p-1 ml-auto shrink-0">
-                    {[
-                      { id: 'all', label: 'Status' },
-                      { id: 'active', label: 'Active' },
-                      { id: 'pending', label: 'Pending' },
-                      { id: 'archived', label: 'Archived' },
-                    ].map(chip => (
-                      <button
-                        key={chip.id}
-                        onClick={() => setFilterStatus(chip.id)}
-                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-                          filterStatus === chip.id 
-                            ? 'bg-white text-black' 
-                            : 'text-gray-500 hover:text-gray-300'
-                        }`}
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Correlation Heatmap */}
-              <div className="mb-6">
-                <CorrelationHeatmap targets={targets} />
-              </div>
-
-              {/* Target Cards */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="mono-label text-gray-400 flex items-center gap-2">
-                    <TargetIcon size={12} className="text-harvest-accent" />
-                    PRIORITY ASSETS ({filteredTargets.length})
-                  </h2>
-                  <button className="p-1 px-2 bg-harvest-card rounded border border-harvest-border text-[9px] font-bold text-gray-500 flex items-center gap-1">
-                    <SlidersHorizontal size={10} />
-                    SORT
-                  </button>
-                </div>
-
-                {loading ? (
-                  Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-24 hardware-surface animate-pulse" />
-                  ))
-                ) : filteredTargets.length > 0 ? (
-                  filteredTargets.map((target) => (
-                    <motion.div
-                      key={target.id}
-                      whileHover={{ y: -2 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => navigate(`/target/${target.id}`)}
-                      className="hardware-surface p-4 flex items-center justify-between group active:bg-white/5 cursor-pointer relative overflow-hidden"
-                    >
-                      {target.status === 'active' && (
-                        <div className="absolute top-0 left-0 w-1 h-full bg-harvest-accent shadow-[0_0_10px_rgba(0,255,0,0.5)]" />
-                      )}
-                      <div className="flex items-center gap-4">
-                        <div className={`p-3 rounded-lg ${
-                          target.status === 'active' ? 'bg-harvest-accent/10' : 'bg-gray-800/30'
-                        }`}>
-                          {target.type === 'domain' && <Globe size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                          {target.type === 'persona' && <User size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                          {target.type === 'wallet' && <Zap size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                          {target.type === 'ip' && <Cpu size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-white group-hover:text-harvest-accent transition-colors">{target.name}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="mono-label !text-[9px]">{target.type}</span>
-                            <span className="w-1 h-1 rounded-full bg-gray-700" />
-                            <span className={`text-[9px] font-bold uppercase tracking-tighter ${
-                              target.status === 'active' ? 'text-harvest-accent' : 'text-gray-600'
-                            }`}>{target.status}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 text-right">
-                        <div className="text-right">
-                          <p className="text-[10px] font-mono font-bold text-harvest-accent">{target.confidenceScore || 0}%</p>
-                          <p className="mono-label !text-[8px]">Confidence</p>
-                        </div>
-                        <button
-                          onClick={(e) => handleTogglePriority(e, target)}
-                          className={`p-2 transition-all border border-transparent rounded ${
-                            target.isPriorityAsset 
-                              ? 'text-yellow-400 hover:bg-yellow-400/10 hover:border-yellow-400/30 opacity-100' 
-                              : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-0 group-hover:opacity-100'
-                          }`}
-                          title={target.isPriorityAsset ? "Remove Priority Status" : "Mark as Priority Asset"}
-                        >
-                          <Star size={16} fill={target.isPriorityAsset ? "currentColor" : "none"} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setQuickScanTarget(target);
-                          }}
-                          className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
-                          title="Quick Scan"
-                        >
-                          <Search size={16} />
-                        </button>
-                        <button 
-                          onClick={(e) => handleDeleteTarget(e, target.id as string)}
-                          className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
-                          title="Delete Target"
-                        >
-                          <Trash size={16} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))
-                ) : (
-                  <div className="py-12 hardware-surface text-center bg-transparent border-dashed">
-                    <Database size={32} className="mx-auto text-gray-700 mb-3" />
-                    <p className="mono-label text-gray-600">No Intelligence Matches Found</p>
-                  </div>
+                {isAutoRefreshActive && (
+                  <span className="text-[10px] font-mono text-gray-400 border-l border-white/10 pl-3">
+                    Next sync in: <strong className="text-harvest-accent">{secondsLeft}s</strong>
+                  </span>
                 )}
               </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setActiveTab('govsec')}
+                  className="px-3 py-1.5 rounded-xl border border-harvest-accent/30 bg-harvest-accent/10 hover:bg-harvest-accent/20 text-harvest-accent text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all"
+                  title="Open Universal GovSec Intelligence Reconsolidation Framework"
+                >
+                  <Scale size={13} />
+                  <span>GOVSEC UGSIDF</span>
+                </button>
+
+                <button
+                  onClick={() => setShowVisualizer(!showVisualizer)}
+                  className={`px-3 py-1.5 rounded-xl border text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all ${
+                    showVisualizer
+                      ? 'bg-harvest-accent/15 border-harvest-accent/60 text-white'
+                      : 'bg-black/50 border-white/10 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <BarChart3 size={13} className={showVisualizer ? 'text-harvest-accent' : ''} />
+                  <span>{showVisualizer ? 'HIDE TOPOLOGY MAP' : 'SHOW TOPOLOGY MAP'}</span>
+                </button>
+
+                <button
+                  onClick={manualRefresh}
+                  disabled={isRefreshing}
+                  className="px-3 py-1.5 bg-black/50 hover:bg-harvest-accent/10 border border-harvest-border hover:border-harvest-accent/40 rounded-xl text-[11px] font-mono font-bold text-gray-300 hover:text-white flex items-center gap-1.5 transition-all"
+                  title="Force Instant Synchronization"
+                >
+                  <RefreshCw size={13} className={isRefreshing ? 'animate-spin text-harvest-accent' : 'text-gray-400'} />
+                  <span>{isRefreshing ? 'SYNCING...' : 'REFRESH NOW'}</span>
+                </button>
+              </div>
             </div>
-            
-            {/* Sidebar Widget */}
-            <div className="lg:block hidden h-full">
-              <ThreatIntelligenceWidget context={searchTerm || "latest cyber threat intelligence"} />
+
+            {/* Infrastructure Threat Visualizer (Recharts Geographic & Cluster Topology) */}
+            <AnimatePresence>
+              {showVisualizer && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <InfrastructureThreatVisualizer targets={targets} onSelectTarget={t => navigate(`/target/${t.id}`)} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 space-y-6">
+                {/* Robust Search & Multi-Dimensional Filtering Component */}
+                <ThreatSearchFilterBar
+                  filters={filters}
+                  onChange={(newFilters) => {
+                    setFilters(newFilters);
+                    if (newFilters.searchTerm.trim() && newFilters.searchTerm !== filters.searchTerm) {
+                      saveRecentSearchTerm(newFilters.searchTerm);
+                    }
+                  }}
+                  totalCount={targets.length}
+                  filteredCount={filteredTargets.length}
+                  recentSearches={recentSearches}
+                  onSelectRecentSearch={handleSelectRecentSearch}
+                  onRemoveRecentSearch={handleRemoveRecentSearch}
+                />
+
+                {/* Global Entropy Heatmap */}
+                <div className="mb-6">
+                  <GlobalEntropyHeatmap />
+                </div>
+
+                {/* Correlation Heatmap */}
+                <div className="mb-6">
+                  <CorrelationHeatmap targets={targets} />
+                </div>
+
+                {/* Temporal Threat Heatmap */}
+                <div className="mb-6">
+                  <TemporalThreatHeatmap targets={targets} />
+                </div>
+
+                {/* Target Cards */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="mono-label text-gray-400 flex items-center gap-2">
+                      <TargetIcon size={12} className="text-harvest-accent" />
+                      MONITORED THREAT ASSETS ({filteredTargets.length})
+                    </h2>
+                    <span className="text-[10px] font-mono text-gray-500">
+                      LIVE DATABASE SYNC
+                    </span>
+                  </div>
+
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="h-24 hardware-surface animate-pulse" />
+                    ))
+                  ) : filteredTargets.length > 0 ? (
+                    filteredTargets.map((target) => (
+                      <motion.div
+                        key={target.id}
+                        whileHover={{ y: -2 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => navigate(`/target/${target.id}`)}
+                        className="hardware-surface p-4 flex items-center justify-between group active:bg-white/5 cursor-pointer relative overflow-hidden"
+                      >
+                        {target.status === 'active' && (
+                          <div className="absolute top-0 left-0 w-1 h-full bg-harvest-accent shadow-[0_0_10px_rgba(0,255,0,0.5)]" />
+                        )}
+                        <div className="flex items-center gap-4">
+                          <div className={`p-3 rounded-lg ${
+                            target.status === 'active' ? 'bg-harvest-accent/10' : 'bg-gray-800/30'
+                          }`}>
+                            {target.type === 'domain' && <Globe size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                            {target.type === 'persona' && <User size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                            {target.type === 'wallet' && <Zap size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                            {target.type === 'ip' && <Cpu size={20} className={target.status === 'active' ? 'text-harvest-accent' : 'text-gray-500'} />}
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-white group-hover:text-harvest-accent transition-colors">{target.name}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="mono-label !text-[9px]">{target.type}</span>
+                              <span className="w-1 h-1 rounded-full bg-gray-700" />
+                              <span className={`text-[9px] font-bold uppercase tracking-tighter ${
+                                target.status === 'active' ? 'text-harvest-accent' : 'text-gray-600'
+                              }`}>{target.status}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-right">
+                          <div className="text-right">
+                            <p className="text-[10px] font-mono font-bold text-harvest-accent">{target.confidenceScore || 0}%</p>
+                            <p className="mono-label !text-[8px]">Confidence</p>
+                          </div>
+                          <button
+                            onClick={(e) => handleTogglePriority(e, target)}
+                            className={`p-2 transition-all border border-transparent rounded ${
+                              target.isPriorityAsset 
+                                ? 'text-yellow-400 hover:bg-yellow-400/10 hover:border-yellow-400/30 opacity-100' 
+                                : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-0 group-hover:opacity-100'
+                            }`}
+                            title={target.isPriorityAsset ? "Remove Priority Status" : "Mark as Priority Asset"}
+                          >
+                            <Star size={16} fill={target.isPriorityAsset ? "currentColor" : "none"} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProvenanceTarget(target);
+                            }}
+                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
+                            title="Provenance State Machine"
+                          >
+                            <Database size={16} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setQuickScanTarget(target);
+                            }}
+                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
+                            title="Quick Scan"
+                          >
+                            <Search size={16} />
+                          </button>
+                          <button 
+                            onClick={(e) => handleDeleteTarget(e, target.id as string)}
+                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
+                            title="Delete Target"
+                          >
+                            <Trash size={16} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))
+                  ) : (
+                    <div className="py-12 hardware-surface text-center bg-transparent border-dashed">
+                      <Database size={32} className="mx-auto text-gray-700 mb-3" />
+                      <p className="mono-label text-gray-600">No Intelligence Matches Found</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Sidebar Widget */}
+              <div className="lg:block hidden h-full">
+                <ThreatIntelligenceWidget context={debouncedSearchTerm || "latest cyber threat intelligence"} />
+              </div>
             </div>
           </div>
         );
       case 'activity':
         return <CTIOpsDashboard targets={targets} activePersona={activePersona} onClose={() => setActiveTab('targets')} />;
+      case 'temporal':
+        return <TemporalEngine />;
+      case 'inference':
+        return <InferenceEngine />;
+      case 'registry':
+        return <DataSourceRegistry />;
+      case 'personas':
+        return <SocialNetworkAnalysisView personas={targets.map(t => ({ id: t.id || '', label: t.name }))} profiles={[]} loading={false} />;
+      case 'threats':
+        return <ThreatContextualizationView assessments={[]} onGenerate={() => {}} loading={false} />;
+      case 'anonymization':
+        return <DataAnonymizationView targets={targets} />;
       case 'bulk':
         return <BulkScannerView activePersona={activePersona} onClose={() => setActiveTab('targets')} />;
       case 'restoration':
@@ -363,6 +488,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
               </button>
             </div>
             <AtomicContextViewer metrics={telemetry} />
+          </div>
+        );
+      case 'dcoip':
+        return (
+          <div className="space-y-6">
+            <DCOIPDashboard />
+          </div>
+        );
+      case 'ipasngraph':
+        return (
+          <div className="space-y-6">
+            <NetworkTopology />
+          </div>
+        );
+      case 'reconsolidation':
+        return (
+          <div className="space-y-6">
+            <UniversalGovSecFrameworkView />
+            <ThreatVisualization targets={targets} onSelectTarget={t => navigate(`/target/${t.id}`)} />
+          </div>
+        );
+      case 'alerts':
+        return (
+          <div className="space-y-6">
+            <AutomatedAlertsCenter />
+          </div>
+        );
+      case 'govsec':
+        return (
+          <div className="space-y-6">
+            <UniversalGovSecFrameworkView />
+          </div>
+        );
+      case 'epistemic':
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="mono-label text-gray-400 flex items-center gap-2">
+                <Scale size={12} className="text-harvest-accent" />
+                EPISTEMIC CONSTITUTION & SCIENTIFIC RECONSTRUCTION
+              </h2>
+              <button 
+                onClick={() => setActiveTab('targets')}
+                className="text-[10px] text-gray-600 hover:text-white transition-colors uppercase tracking-widest"
+              >
+                Return to Database
+              </button>
+            </div>
+            <EpistemicConstitutionView />
           </div>
         );
       case 'graph':
@@ -436,6 +610,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
       onLogout={() => auth.signOut()}
     >
       {renderContent()}
+
+      {/* Provenance Modal */}
+      <AnimatePresence>
+        {provenanceTarget && (
+          <ProvenanceModal target={provenanceTarget} onClose={() => setProvenanceTarget(null)} />
+        )}
+      </AnimatePresence>
 
       {/* Add Target Modal */}
       <AnimatePresence>

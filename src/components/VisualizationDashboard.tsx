@@ -135,9 +135,9 @@ export const VisualizationDashboard: React.FC<VisualizationDashboardProps> = ({
                   contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #222', fontSize: '10px' }}
                   itemStyle={{ color: '#fff' }}
                 />
-                <Area type="monotone" dataKey="Report" stroke="#00ff00" fillOpacity={1} fill="url(#colorReport)" />
-                <Area type="monotone" dataKey="Monitoring" stroke="#0088ff" fillOpacity={0} />
-                <Area type="monotone" dataKey="Anomaly" stroke="#ff0000" fillOpacity={0} />
+                <Area isAnimationActive={false} type="monotone" dataKey="Report" stroke="#00ff00" fillOpacity={1} fill="url(#colorReport)" />
+                <Area isAnimationActive={false} type="monotone" dataKey="Monitoring" stroke="#0088ff" fillOpacity={0} />
+                <Area isAnimationActive={false} type="monotone" dataKey="Anomaly" stroke="#ff0000" fillOpacity={0} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -200,7 +200,7 @@ export const VisualizationDashboard: React.FC<VisualizationDashboardProps> = ({
                   cursor={{ fill: '#1a1a1a' }}
                   contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #222', fontSize: '10px' }}
                 />
-                <Bar dataKey="value" fill="#0088ff" radius={[0, 4, 4, 0]} />
+                <Bar isAnimationActive={false} dataKey="value" fill="#0088ff" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -227,7 +227,7 @@ export const VisualizationDashboard: React.FC<VisualizationDashboardProps> = ({
                   cursor={{ fill: '#1a1a1a' }}
                   contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #222', fontSize: '10px' }}
                 />
-                <Bar dataKey="value" fill="#ff00ff" radius={[0, 4, 4, 0]} />
+                <Bar isAnimationActive={false} dataKey="value" fill="#ff00ff" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

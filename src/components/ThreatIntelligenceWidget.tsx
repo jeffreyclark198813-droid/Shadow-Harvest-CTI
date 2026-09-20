@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Network, Search, Loader2, AlertCircle } from 'lucide-react';
 
+import { telemetryService } from '../services/telemetryService';
+
 interface ThreatIntel {
   summary: string;
   sources: { title: string; uri: string }[];
@@ -17,14 +19,20 @@ export const ThreatIntelligenceWidget: React.FC<{ context: string }> = ({ contex
     setError(null);
     fetch(`/api/v1/threat-intel?context=${encodeURIComponent(context)}`)
       .then(async res => {
+        const data = await res.json().catch(() => null);
         if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.error || 'Failed to fetch threat intelligence.');
+          if (data && data.data) {
+            setIntel(data.data);
+            return null;
+          }
+          throw new Error((data && data.error) || 'Failed to fetch threat intelligence.');
         }
-        return res.json();
+        return data;
       })
       .then(data => {
-        setIntel(data);
+        if (data) {
+          setIntel(data);
+        }
         setLoading(false);
       })
       .catch(err => {

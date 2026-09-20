@@ -38,6 +38,7 @@ import { IntelligenceSynthesizer } from './IntelligenceSynthesizer';
 import { VisualizationDashboard } from './VisualizationDashboard';
 import { AnomalyDetectionView } from './AnomalyDetectionView';
 import { EthicalRiskAssessmentView } from './EthicalRiskAssessmentView';
+import { SocialProfileEntity } from '../types/social_osint';
 import { AdversarialTestingView } from './AdversarialTestingView';
 import { InfrastructureFingerprintingView } from './InfrastructureFingerprintingView';
 import { ThreatActorProfileTemplateView } from './ThreatActorProfileTemplateView';
@@ -353,6 +354,156 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const handleLinkSocialProfileToGraph = async (profile: SocialProfileEntity, rationale: string) => {
+    if (!id) return;
+    const profileNodeId = `node-${profile.id}`;
+    const targetPersonaNode = graphData.nodes.find(n => n.type === 'persona');
+    const sourceNodeId = targetPersonaNode?.id || graphData.nodes[0]?.id || 'root';
+
+    setGraphData(prev => {
+      const nodeExists = prev.nodes.some(n => n.id === profileNodeId);
+      const newNodes = nodeExists 
+        ? prev.nodes 
+        : [...prev.nodes, { id: profileNodeId, label: `@${profile.handle} (${profile.platformName})`, type: 'entity' }];
+      
+      const edgeExists = prev.edges.some(e => e.source === sourceNodeId && e.target === profileNodeId);
+      const newEdges = edgeExists
+        ? prev.edges
+        : [...prev.edges, { source: sourceNodeId, target: profileNodeId, relationship: 'Correlated Public Profile', confidence: profile.confidenceScore }];
+
+      return {
+        nodes: newNodes,
+        edges: newEdges
+      };
+    });
+
+    await addReport({
+      targetId: id,
+      phase: 4,
+      content: `### Public Social Media Correlation Linked\n\n**Platform:** \`${profile.platformName}\`\n**Handle:** \`@${profile.handle}\`\n**Profile URL:** ${profile.profileUrl}\n**Match Confidence:** ${Math.round(profile.confidenceScore * 100)}%\n\n**Analytical Rationale:**\n${rationale}\n\n**Ethical Verification:** ${profile.ethicalCompliance.dataProvenanceNote}`,
+      source: 'Social OSINT Correlator',
+      confidence: profile.confidenceScore > 0.85 ? 'A' : 'B'
+    });
+
+    notify({
+      type: 'success',
+      title: 'Social Identity Linked',
+      message: `Added @${profile.handle} (${profile.platformName}) to target intelligence graph.`
+    });
+  };
+
+  const handleLogSocialInsightReport = async (title: string, content: string) => {
+    if (!id) return;
+    await addReport({
+      targetId: id,
+      phase: 4,
+      content,
+      source: 'Social OSINT Engine',
+      confidence: 'A'
+    });
+    notify({
+      type: 'success',
+      title: 'Insight Documented',
+      message: 'Intelligence insight logged to target investigation dossier.'
+    });
+  };
+
+  const handlePushSignaturesToGraph = async (profile: AdvancedPersonaProfile) => {
+    if (!id) return;
+    const personaNode = graphData.nodes.find(n => n.id === profile.personaId) || { id: profile.personaId, label: profile.personaId, type: 'persona' };
+    
+    // 1. Timezone / Regional node
+    const tzLabel = profile.behavioralSignature?.timezoneInference || 'UTC Activity Window';
+    const tzId = `tz_${profile.id || profile.personaId}`;
+    const tzNode = {
+      id: tzId,
+      label: `TZ: ${tzLabel}`,
+      type: 'timezone_region',
+      metadata: {
+        confidence: (profile.behavioralSignature?.timezoneConfidence || 85) / 100,
+        source: 'Cadence Inference Engine',
+        cadencePattern: profile.behavioralSignature?.cadencePattern || 'Diurnal Activity',
+        regionalIndicators: profile.behavioralSignature?.regionalIndicators
+      }
+    };
+
+    // 2. Stylometry node
+    const styloId = `stylo_${profile.id || profile.personaId}`;
+    const styloNode = {
+      id: styloId,
+      label: `Stylometry: ${profile.stylometricAnalysis?.writingStyle || 'Analyzed Style'}`,
+      type: 'metadata_artifact',
+      metadata: {
+        confidence: 0.85,
+        source: 'Stylometry Engine',
+        lexicalDiversity: profile.stylometricAnalysis?.lexicalDiversity,
+        formalityIndex: profile.stylometricAnalysis?.formalityIndex,
+        syntacticComplexity: profile.stylometricAnalysis?.syntacticComplexity
+      }
+    };
+
+    // 3. Toolchain nodes
+    const toolNodes = (profile.behavioralSignature?.signatureToolchain || []).map((tool, idx) => ({
+      id: `tool_${profile.id || profile.personaId}_${idx}`,
+      label: tool,
+      type: 'code_artifact',
+      metadata: {
+        confidence: 0.85,
+        source: 'Toolchain Profiler'
+      }
+    }));
+
+    const newNodes = [tzNode, styloNode, ...toolNodes];
+
+    // Edges linking persona to behavioral signatures
+    const newEdges = [
+      {
+        source: personaNode.id,
+        target: tzId,
+        relationship: 'INFERRED_TIMEZONE',
+        confidence: (profile.behavioralSignature?.timezoneConfidence || 85) / 100,
+        dataSource: 'Behavioral Cadence'
+      },
+      {
+        source: personaNode.id,
+        target: styloId,
+        relationship: 'EXHIBITS_STYLOMETRY',
+        confidence: 0.85,
+        dataSource: 'Stylometric Analysis'
+      },
+      ...toolNodes.map(tn => ({
+        source: personaNode.id,
+        target: tn.id,
+        relationship: 'USES_TOOL',
+        confidence: 0.85,
+        dataSource: 'Toolchain Profiler'
+      }))
+    ];
+
+    setGraphData(prev => {
+      const existingNodeIds = new Set(prev.nodes.map(n => n.id));
+      const filteredNewNodes = newNodes.filter(n => !existingNodeIds.has(n.id));
+      return {
+        nodes: [...prev.nodes, ...filteredNewNodes],
+        edges: [...prev.edges, ...newEdges]
+      };
+    });
+
+    await addReport({
+      targetId: id,
+      phase: 4,
+      content: `### Behavioral Signatures Linked to Intelligence Graph\n\n**Persona ID:** \`${profile.personaId}\`\n**Timezone Inference:** \`${profile.behavioralSignature?.timezoneInference || 'N/A'}\` (Offset: UTC${(profile.behavioralSignature?.primaryUtcOffset ?? 0) >= 0 ? '+' : ''}${profile.behavioralSignature?.primaryUtcOffset ?? 0})\n**Cadence Pattern:** \`${profile.behavioralSignature?.cadencePattern || 'N/A'}\`\n**Stylometric Complexity:** \`${profile.stylometricAnalysis?.syntacticComplexity || 'N/A'}\` (Lexical Diversity: ${profile.stylometricAnalysis?.lexicalDiversity ?? 'N/A'})\n**Toolchain:** ${(profile.behavioralSignature?.signatureToolchain || []).join(', ') || 'None detected'}\n\n**Operational Security Hygiene:** ${profile.behavioralSignature?.opsecHygieneRating || 0}/5`,
+      source: 'Behavioral Profiler',
+      confidence: 'A'
+    });
+
+    notify({
+      type: 'success',
+      title: 'Signatures Synchronized',
+      message: 'Pushed timezone, stylometry, and toolchain nodes into the Unified Intelligence Graph.'
+    });
   };
 
   const runAttributionEngine = async () => {
@@ -872,7 +1023,16 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
                 )}
                 {activeTab === 'profiling' && (
                   <div className="max-w-6xl mx-auto">
-                    <PersonaProfilingView profiles={personaProfiles} onProfile={handleAdvancedPersonaProfile} loading={analyzing} personas={graphData.nodes.filter(n => n.type === 'persona')} />
+                    <PersonaProfilingView 
+                      profiles={personaProfiles} 
+                      onProfile={handleAdvancedPersonaProfile} 
+                      loading={analyzing} 
+                      personas={graphData.nodes.filter(n => n.type === 'persona')} 
+                      targetId={id || ''}
+                      onLinkToGraph={handleLinkSocialProfileToGraph}
+                      onLogReport={handleLogSocialInsightReport}
+                      onPushSignaturesToGraph={handlePushSignaturesToGraph}
+                    />
                   </div>
                 )}
                 {activeTab === 'link_personas' && (

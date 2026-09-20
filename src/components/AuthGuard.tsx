@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  auth, googleProvider, signInWithPopup, createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, User, db, doc, getDoc, setDoc, Timestamp 
+  auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, User, db, doc, getDoc, setDoc, serverTimestamp 
 } from '../firebase';
 import { Shield, Lock, Terminal, Mail, UserPlus, LogIn, AlertCircle, CheckCircle, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -19,6 +19,7 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
   const [authError, setAuthError] = useState<string | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isPopupBlocked, setIsPopupBlocked] = useState(false);
 
   // Password Security requirements check
   const hasMinLength = password.length >= 8;
@@ -29,6 +30,14 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
   const isPasswordSecure = hasMinLength && hasUppercase && hasLowercase && hasNumber && hasSpecial;
 
   useEffect(() => {
+    // Check for redirect result on mount
+    getRedirectResult(auth).catch((error) => {
+      console.error("Redirect auth error:", error);
+      if (error.code === 'auth/popup-blocked' || error.message?.includes('popup-blocked')) {
+        setIsPopupBlocked(true);
+      }
+    });
+
     return onAuthStateChanged(auth, async (u) => {
       if (u) {
         try {
@@ -40,7 +49,7 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
               displayName: u.displayName || u.email?.split('@')[0] || 'Operator',
               photoURL: u.photoURL,
               role: 'admin',
-              createdAt: Timestamp.now()
+              createdAt: serverTimestamp()
             });
           }
         } catch (error) {
@@ -52,14 +61,37 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
     });
   }, []);
 
-  const handleGoogleLogin = async () => {
+  const [showAutoLoginPrompt, setShowAutoLoginPrompt] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('autologin') === 'google' && !user && !loading) {
+      setShowAutoLoginPrompt(true);
+      // Clear the param to avoid repeated attempts
+      const newUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, [user, loading]);
+
+  const handleGoogleLogin = async (useRedirect = false) => {
     setAuthError(null);
     setSubmitting(true);
+    setIsPopupBlocked(false);
+    
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (useRedirect || (window.self === window.top && isPopupBlocked)) {
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (error: any) {
       console.error("Google login failed:", error);
-      setAuthError(error.message || "Google authentication failed.");
+      if (error.code === 'auth/popup-blocked' || error.message?.includes('popup-blocked')) {
+        setIsPopupBlocked(true);
+        setAuthError("Browser blocked the authorization window. This is common in secure environments.");
+      } else {
+        setAuthError(error.message || "Google authentication failed.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -94,7 +126,7 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
           email: cred.user.email,
           displayName: email.split('@')[0],
           role: 'admin',
-          createdAt: Timestamp.now()
+          createdAt: serverTimestamp()
         });
       } else if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email, password);
@@ -132,6 +164,29 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
   }
 
   if (!user) {
+    if (showAutoLoginPrompt) {
+      return (
+        <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4 font-mono">
+          <div className="max-w-md w-full bg-[#141414] border border-[#00ff00]/30 p-8 rounded-xl shadow-2xl space-y-6 text-center">
+            <Shield size={48} className="mx-auto text-[#00ff00] animate-pulse" />
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-white uppercase tracking-tighter">Identity Verification Required</h2>
+              <p className="text-gray-400 text-xs">A manual gesture is required to establish the secure neural link in this new session.</p>
+            </div>
+            <button
+              onClick={() => {
+                setShowAutoLoginPrompt(false);
+                handleGoogleLogin();
+              }}
+              className="w-full bg-[#00ff00] hover:bg-[#00cc00] text-black font-bold py-4 rounded-lg text-sm uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(0,255,0,0.2)]"
+            >
+              Start Authorization
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4 font-mono">
         <div className="max-w-md w-full bg-[#141414] border border-white/10 p-8 rounded-xl shadow-2xl space-y-6">
@@ -164,9 +219,47 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
           </div>
 
           {authError && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs flex items-center gap-2">
-              <AlertCircle size={16} className="shrink-0" />
-              <span>{authError}</span>
+            <div className="space-y-3">
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>{authError}</span>
+              </div>
+              
+              {isPopupBlocked && (
+                <div className="space-y-3">
+                  <div className="bg-black/40 border border-white/5 p-4 rounded-lg space-y-3">
+                    <p className="text-[10px] text-gray-400 leading-relaxed">
+                      To resolve this, click the button below to open the session in a new tab. In the new tab, a manual "Start Authorization" button will appear to safely bypass the browser's security filters.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleGoogleLogin(true)}
+                      className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 py-3 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors"
+                    >
+                      <Shield size={14} />
+                      Use Redirect Method (Safe)
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('autologin', 'google');
+                        window.open(url.toString(), '_blank');
+                      }}
+                      className="w-full flex items-center justify-center gap-2 bg-[#00ffcc]/20 hover:bg-[#00ffcc]/30 text-[#00ffcc] border border-[#00ffcc]/30 py-3 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-colors shadow-[0_0_15px_rgba(0,255,204,0.1)]"
+                    >
+                      <RefreshCw size={14} />
+                      Establish External Link
+                    </button>
+                  </div>
+                  
+                  <div className="text-[9px] text-gray-600 text-center uppercase tracking-widest space-y-1">
+                    <p>Alternative: Disable popup blockers in browser settings</p>
+                    <p>Tip: Click the "Open in new tab" icon in the top right corner</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -302,7 +395,7 @@ export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children })
 
               <button
                 type="button"
-                onClick={handleGoogleLogin}
+                onClick={() => handleGoogleLogin()}
                 disabled={submitting}
                 className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 text-white font-bold py-3 px-4 rounded-lg border border-white/10 transition-colors text-xs uppercase tracking-wider"
               >

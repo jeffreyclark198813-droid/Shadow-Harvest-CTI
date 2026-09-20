@@ -6,8 +6,8 @@ import morgan from "morgan";
 import { createServer as createViteServer } from "vite";
 import { Server } from "socket.io";
 import { createServer } from "http";
-import dns from "dns/promises";
-import net from "net";
+import { apiRouter } from "./src/server/routes/api";
+import { logger } from "./src/utils/logger";
 
 async function startServer() {
   const app = express();
@@ -21,13 +21,14 @@ async function startServer() {
     }
   });
 
-  // Real-time Collaboration Engine
+  // Real-time Collaboration Engine (Observability Enabled)
   io.on("connection", (socket) => {
-    console.log(`[Socket] Client connected: ${socket.id}`);
+    logger.info(`Client connected to workspace stream`, { module: "WebSockets", socketId: socket.id });
     
     socket.on("join-workspace", (workspaceId) => {
       socket.join(workspaceId);
       socket.to(workspaceId).emit("user-joined", socket.id);
+      logger.debug(`User joined collaboration room`, { module: "WebSockets", workspaceId, socketId: socket.id });
     });
 
     socket.on("cursor-move", (data) => {
@@ -46,92 +47,54 @@ async function startServer() {
     });
 
     socket.on("disconnect", () => {
-      console.log(`[Socket] Client disconnected: ${socket.id}`);
+      logger.info(`Client disconnected from workspace stream`, { module: "WebSockets", socketId: socket.id });
     });
   });
 
-  // Modernization: Strengthened security & observability
+  // Security Hardening via Helmet with custom adjustments
   app.use(helmet({
-    contentSecurityPolicy: false, // Disabled for Vite development
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
   }));
+
+  // CORS Enabling
   app.use(cors());
-  app.use(morgan("dev", {
-    skip: (req, res) => res.statusCode < 400
-  })); // Observability / Request Logging (Errors only)
-  app.use(express.json());
 
-  // Modernization: Extensible, versioned interfaces (API Layer)
-  const apiV1 = express.Router();
-  
-  apiV1.get("/health", (req, res) => {
-    res.json({ 
-      status: "ok", 
-      version: "1.0.0",
-      timestamp: new Date().toISOString(),
-      message: "API Gateway Operational"
+  // Observability & Request Auditing
+  if (process.env.NODE_ENV === "production") {
+    app.use(morgan("combined", {
+      stream: {
+        write: (message) => logger.info(message.trim(), { module: "HTTP-Access" })
+      }
+    }));
+  } else {
+    app.use(morgan("dev"));
+  }
+
+  app.use(express.json({ limit: "10mb" }));
+
+  // Gateway Routes
+  app.use("/api/v1", apiRouter);
+
+  // Fallback API v2 Placeholder Route (Future extensibility)
+  app.use("/api/v2", (req, res) => {
+    res.status(501).json({
+      error: "Not Implemented",
+      message: "Version 2 APIs are currently under active specification."
     });
   });
-
-// ... existing code ...
-
-  // Threat Intelligence Endpoint
-  apiV1.get("/threat-intel", async (req, res) => {
-    try {
-      const { context } = req.query;
-      if (!context || typeof context !== 'string') {
-        return res.status(400).json({ error: "Context is required" });
-      }
-      const { analyzeSurfaceWeb } = await import("./src/services/geminiService");
-      const result = await analyzeSurfaceWeb(context);
-      res.json(result);
-    } catch (error: any) {
-      const message = error.message || "Failed to fetch threat intelligence";
-      res.status(500).json({ error: message });
-    }
-  });
-
-  // Recon API
-  apiV1.post("/recon", async (req, res) => {
-    try {
-      const { targetId, domain } = req.body;
-      if (!targetId || !domain) {
-        return res.status(400).json({ error: "targetId and domain are required" });
-      }
-
-      // Basic DNS scan
-      const dnsRecords = await dns.resolve(domain).catch(() => []);
-      
-      // Store findings (mocking the addReconFinding call for simplicity)
-      // I would import { addReconFinding } from "./src/services/dbService"
-      // but imports in server.ts are tricky with bundled code.
-      // I'll just return the findings.
-      
-      res.json({ dnsRecords });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to run recon" });
-    }
-  });
-
-  // Example microservice route structure
-  apiV1.get("/observability/metrics", (req, res) => {
-    res.json({
-      uptime: process.uptime(),
-      memoryUsage: process.memoryUsage(),
-      status: "healthy"
-    });
-  });
-
-  app.use("/api/v1", apiV1);
 
   // Vite middleware for development (UI Layer)
   if (process.env.NODE_ENV !== "production") {
+    logger.info("Initializing Vite development engine middleware...", { module: "Bundler" });
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    // Cloud-native production deployment fallback
+    // Cloud-native production deployment folder serving
+    logger.info("Configuring production static assets path serving", { module: "Bundler" });
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -140,8 +103,12 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`[System] Service-oriented backend initialized on port ${PORT}`);
-    console.log(`[System] API v1 Gateway accessible at /api/v1/health`);
+    logger.info(`Shadow Harvest CTI initialized successfully`, { 
+      module: "Bootstrap", 
+      port: PORT, 
+      host: "0.0.0.0",
+      environment: process.env.NODE_ENV || "development"
+    });
   });
 }
 

@@ -1,6 +1,7 @@
 import { 
-  db, collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, OperationType, handleFirestoreError, doc, getDocs
+  db, collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, OperationType, handleFirestoreError, doc, getDocs, setDoc, serverTimestamp
 } from '../firebase';
+import { PersonaSocialCorrelationResult } from '../types/social_osint';
 
 export interface ApiEndpointConfig {
   id?: string;
@@ -23,8 +24,8 @@ export const createApiEndpoint = async (endpoint: Omit<ApiEndpointConfig, 'id' |
   try {
     const docRef = await addDoc(collection(db, path), {
       ...endpoint,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -37,7 +38,7 @@ export const updateApiEndpoint = async (id: string, updates: Partial<ApiEndpoint
   try {
     await updateDoc(doc(db, path, id), {
       ...updates,
-      updatedAt: Timestamp.now()
+      updatedAt: serverTimestamp()
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
@@ -135,12 +136,40 @@ export interface AdvancedPersonaProfile {
     writingStyle: string;
     vocabulary: string;
     sentiment: string;
+    lexicalDiversity?: number; // 0.0 - 1.0 (Type-token ratio)
+    formalityIndex?: number; // 0 - 100
+    syntacticComplexity?: 'low' | 'moderate' | 'high' | 'academic' | string;
+    punctuationHabits?: string[];
+    dialectMarkers?: string[];
+    loanwordsAndJargon?: string[];
+    sentimentStability?: string;
+    characteristicPhrases?: string[];
   };
   behavioralSignature: {
     activityCadence: string;
     timezoneInference: string;
     regionalIndicators?: string;
     operationalSecurity: string;
+    hourlyDistribution?: number[]; // 24 entries (hours 0-23 UTC activity weights 0-100)
+    weeklyDistribution?: { day: string; activity: number }[]; // Mon-Sun
+    cadencePattern?: string; // 'Diurnal Business Hours' | 'Nocturnal Bursts' | 'Scripted Automated' | etc.
+    peakWindows?: string[]; // e.g. ["13:00 - 17:00 UTC", "21:30 - 01:00 UTC"]
+    circadianRhythm?: string;
+    inactivityDormancy?: string;
+    primaryUtcOffset?: number; // e.g. +3
+    timezoneConfidence?: number; // 0-100
+    secondaryCandidateOffsets?: string[];
+    localeConventions?: {
+      dateFormat?: string;
+      numberFormat?: string;
+      keyboardArtifacts?: string;
+      colloquialPhrasing?: string[];
+    };
+    opsecHygieneRating?: number; // 1 to 5 scale
+    signatureToolchain?: string[];
+    behavioralArchetype?: string; // Non-sensitive archetype (e.g. "Financially Motivated Operator", "Methodical Initial Access Broker")
+    operationalMaturity?: string;
+    nonSensitiveSummary?: string;
   };
   timestamp: any;
 }
@@ -207,6 +236,7 @@ export interface UserSettings {
   username?: string;
   avatar?: string;
   bio?: string;
+  autoRefreshInterval?: number; // In seconds (0 = disabled/manual, 10, 30, 60, 120, 300)
   achievements?: UserAchievement[];
   stats?: {
     actionsTaken: number;
@@ -296,8 +326,8 @@ export const createTarget = async (target: Omit<Target, 'id' | 'createdAt' | 'up
   try {
     const docRef = await addDoc(collection(db, path), {
       ...target,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -319,7 +349,7 @@ export const updateTargetPriority = async (id: string, isPriorityAsset: boolean)
   try {
     await updateDoc(doc(db, path, id), {
       isPriorityAsset,
-      updatedAt: Timestamp.now()
+      updatedAt: serverTimestamp()
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
@@ -340,12 +370,27 @@ export const subscribeToTargets = (uid: string, personaId: string | null, callba
   });
 };
 
+export const fetchTargetsOnce = async (uid: string, personaId: string | null): Promise<Target[]> => {
+  const path = 'targets';
+  let q = query(collection(db, path), where('createdBy', '==', uid));
+  if (personaId) {
+    q = query(collection(db, path), where('createdBy', '==', uid), where('userPersonaId', '==', personaId));
+  }
+  try {
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Target));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return [];
+  }
+};
+
 export const addReport = async (report: Omit<IntelligenceReport, 'id' | 'timestamp'>) => {
   const path = `targets/${report.targetId}/reports`;
   try {
     const docRef = await addDoc(collection(db, path), {
       ...report,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -369,7 +414,7 @@ export const addThreatAssessment = async (assessment: Omit<ThreatAssessment, 'id
   try {
     const docRef = await addDoc(collection(db, path), {
       ...assessment,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -393,7 +438,7 @@ export const addMonitoringEvent = async (event: Omit<MonitoringEvent, 'id' | 'ti
   try {
     const docRef = await addDoc(collection(db, path), {
       ...event,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -573,7 +618,7 @@ export const addNarrativeEvent = async (event: Omit<NarrativeEvent, 'id' | 'time
   try {
     const docRef = await addDoc(collection(db, path), {
       ...event,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -606,7 +651,7 @@ export const addPersonaOSINT = async (osint: Omit<PersonaOSINT, 'id' | 'timestam
   try {
     const docRef = await addDoc(collection(db, path), {
       ...osint,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -630,7 +675,7 @@ export const addAdvancedPersonaProfile = async (profile: Omit<AdvancedPersonaPro
   try {
     const docRef = await addDoc(collection(db, path), {
       ...profile,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -649,12 +694,36 @@ export const subscribeToAdvancedPersonaProfiles = (targetId: string, callback: (
   });
 };
 
+export const addPersonaSocialCorrelation = async (correlation: Omit<PersonaSocialCorrelationResult, 'id' | 'timestamp'>) => {
+  const path = `targets/${correlation.targetId}/social_correlations`;
+  try {
+    const docRef = await addDoc(collection(db, path), {
+      ...correlation,
+      timestamp: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const subscribeToPersonaSocialCorrelations = (targetId: string, callback: (correlations: PersonaSocialCorrelationResult[]) => void) => {
+  const path = `targets/${targetId}/social_correlations`;
+  const q = query(collection(db, path));
+  return onSnapshot(q, (snapshot) => {
+    const correlations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PersonaSocialCorrelationResult));
+    callback(correlations);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
 export const addAttributionReport = async (report: Omit<AttributionReport, 'id' | 'timestamp'>) => {
   const path = `targets/${report.targetId}/attribution_reports`;
   try {
     const docRef = await addDoc(collection(db, path), {
       ...report,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -678,7 +747,7 @@ export const addAIPersona = async (persona: Omit<AIPersona, 'id' | 'createdAt'>)
   try {
     const docRef = await addDoc(collection(db, path), {
       ...persona,
-      createdAt: Timestamp.now()
+      createdAt: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -711,7 +780,7 @@ export const addSynthesizedOutput = async (output: Omit<SynthesizedOutput, 'id' 
   try {
     const docRef = await addDoc(collection(db, path), {
       ...output,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -735,7 +804,7 @@ export const addAnomaly = async (anomaly: Omit<Anomaly, 'id' | 'timestamp'>) => 
   try {
     const docRef = await addDoc(collection(db, path), {
       ...anomaly,
-      timestamp: Timestamp.now(),
+      timestamp: serverTimestamp(),
       resolved: false
     });
     return docRef.id;
@@ -760,7 +829,7 @@ export const addReconFinding = async (finding: Omit<ReconFinding, 'id' | 'timest
   try {
     const docRef = await addDoc(collection(db, path), {
       ...finding,
-      timestamp: Timestamp.now()
+      timestamp: serverTimestamp()
     });
     return docRef.id;
   } catch (error) {
@@ -946,6 +1015,8 @@ export const calculateAttributionConfidence = (
   return { score: Math.min(score, 100), factors };
 };
 
+
+
 export const importUserData = async (userId: string, bundle: UserDataBundle) => {
   const { setDoc, Timestamp } = await import('../firebase');
 
@@ -1014,5 +1085,145 @@ export const importUserData = async (userId: string, bundle: UserDataBundle) => 
       importSub('synthesized_outputs', synthesizedOutputs),
       importSub('anomalies', anomalies)
     ]);
+  }
+};
+
+// Intelligence Operations Services
+
+import { ArtifactProvenance, TemporalDrift, Hypothesis, AuditLogEntry, EntropyPoint, APISource, APIHealthStatus } from '../types/intelligence_ops';
+
+export const subscribeToProvenance = (artifactId: string, callback: (provenance: ArtifactProvenance | null) => void) => {
+  const path = 'provenance';
+  const q = query(collection(db, path), where('artifactId', '==', artifactId));
+  return onSnapshot(q, (snapshot) => {
+    if (!snapshot.empty) {
+      const doc = snapshot.docs[0];
+      callback({ id: doc.id, ...doc.data() } as ArtifactProvenance);
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const subscribeToTemporalDrifts = (callback: (drifts: TemporalDrift[]) => void) => {
+  const path = 'temporal_drifts';
+  const q = query(collection(db, path), where('status', '==', 'flagged'));
+  return onSnapshot(q, (snapshot) => {
+    const drifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TemporalDrift));
+    callback(drifts);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const reconcileTemporalDrift = async (
+  driftId: string, 
+  adjustment: number, 
+  userId: string,
+  initialData?: Partial<TemporalDrift>
+) => {
+  const path = 'temporal_drifts';
+  try {
+    const docRef = doc(db, path, driftId);
+    await setDoc(docRef, {
+      ...(initialData || {}),
+      status: 'reconciled',
+      adjustedMs: adjustment,
+      reconciledBy: userId,
+      reconciledAt: serverTimestamp()
+    }, { merge: true });
+    
+    // Add to audit log
+    await addDoc(collection(db, 'audit_logs'), {
+      userId,
+      action: 'TEMPORAL_RECONCILIATION',
+      targetId: driftId,
+      details: `Reconciled drift ${driftId} with adjustment of ${adjustment}ms`,
+      timestamp: serverTimestamp()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+};
+
+export const subscribeToHypotheses = (uid: string, callback: (hypotheses: Hypothesis[]) => void) => {
+  const path = 'hypotheses';
+  const q = query(collection(db, path), where('createdBy', '==', uid));
+  return onSnapshot(q, (snapshot) => {
+    const hypotheses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Hypothesis));
+    callback(hypotheses);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const addEvidenceToHypothesis = async (
+  hypothesisId: string, 
+  score: number, 
+  artifactId: string,
+  initialData?: Partial<Hypothesis>
+) => {
+  const path = 'hypotheses';
+  try {
+    const docRef = doc(db, path, hypothesisId);
+    const snap = await getDocs(query(collection(db, path), where('__name__', '==', hypothesisId)));
+    if (!snap.empty) {
+      const data = snap.docs[0].data() as Hypothesis;
+      const newTrend = [...(data.trend || []), { score, timestamp: Date.now(), artifactId }];
+      await setDoc(docRef, {
+        trend: newTrend,
+        currentConfidence: score,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } else if (initialData) {
+      const newTrend = [...(initialData.trend || []), { score, timestamp: Date.now(), artifactId }];
+      await setDoc(docRef, {
+        ...initialData,
+        trend: newTrend,
+        currentConfidence: score,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+};
+
+export const getEntropyHeatmapData = async (): Promise<EntropyPoint[]> => {
+  // Mocking some entropy data points for the visualization
+  return [
+    { id: '1', x: 20, y: 30, value: 0.8, label: 'Node A7-X9', artifactId: 'target-1' },
+    { id: '2', x: 45, y: 60, value: 0.95, label: 'Gateway Zeta', artifactId: 'target-2' },
+    { id: '3', x: 70, y: 20, value: 0.4, label: 'Proxy Node 4', artifactId: 'target-3' },
+    { id: '4', x: 85, y: 75, value: 0.65, label: 'Endpoint Delta', artifactId: 'target-4' },
+    { id: '5', x: 30, y: 85, value: 0.85, label: 'Relay Gamma', artifactId: 'target-5' },
+    { id: '6', x: 10, y: 10, value: 0.3, label: 'Audit Log Alpha', artifactId: 'target-6' },
+    { id: '7', x: 55, y: 40, value: 0.75, label: 'Sensor Omega', artifactId: 'target-7' },
+  ];
+};
+
+export const subscribeToAPISources = (callback: (sources: APISource[]) => void) => {
+  const path = 'api_sources';
+  const q = query(collection(db, path));
+  return onSnapshot(q, (snapshot) => {
+    const sources = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as APISource));
+    callback(sources);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const updateAPISourceStatus = async (sourceId: string, status: APIHealthStatus, initialData?: Partial<APISource>) => {
+  const path = 'api_sources';
+  try {
+    await setDoc(doc(db, path, sourceId), {
+      ...(initialData || {}),
+      status,
+      lastChecked: serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.error(`Failed to update API status for ${sourceId}:`, error);
   }
 };

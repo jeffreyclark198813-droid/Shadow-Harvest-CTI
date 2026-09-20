@@ -31,7 +31,8 @@ export const AnomalyDetectionView: React.FC<AnomalyDetectionViewProps> = ({
     setIsScanning(true);
     try {
       const result = await detectAnomalies(targetName, intelligenceContext, persona);
-      for (const anomaly of result.anomalies) {
+      const anomalyList = result?.anomalies && Array.isArray(result.anomalies) ? result.anomalies : [];
+      for (const anomaly of anomalyList) {
         await addAnomaly({
           targetId,
           ...anomaly

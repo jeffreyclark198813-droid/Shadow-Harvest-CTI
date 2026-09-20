@@ -2,12 +2,14 @@ import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthGuard } from './components/AuthGuard';
 import { ThemeProvider } from './components/ThemeProvider';
-import { ErrorBoundary } from './components/ErrorBoundary';
+import { SystemShield } from './components/SystemShield';
 import { Toaster } from './components/Toaster';
 import { SupportAndFeedback } from './components/SupportAndFeedback';
+import { LiveModeProvider } from './context/LiveModeContext';
 import { subscribeToUserPersonas, subscribeToUserSettings, UserPersona, UserSettings } from './services/dbService';
 import { auth } from './firebase';
 import { Loader2 } from 'lucide-react';
+import { useAPIHealthCheck } from './hooks/useAPIHealthCheck';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then(module => ({ default: module.Dashboard })));
 const TargetView = lazy(() => import('./components/TargetView').then(module => ({ default: module.TargetView })));
@@ -15,6 +17,7 @@ const Methodology = lazy(() => import('./components/Methodology').then(module =>
 const CharacterCreation = lazy(() => import('./components/CharacterCreation').then(module => ({ default: module.CharacterCreation })));
 
 export default function App() {
+  useAPIHealthCheck();
   const [personas, setPersonas] = useState<UserPersona[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,25 +79,27 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <ErrorBoundary>
+      <SystemShield>
         <AuthGuard>
-          <Router>
-            <Toaster />
-            <SupportAndFeedback />
-            <Suspense fallback={
-              <div className="h-screen bg-black flex items-center justify-center text-[#00ff00] font-mono">
-                <Loader2 className="animate-spin" size={32} />
-              </div>
-            }>
-              <Routes>
-                <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
-                <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />
-                <Route path="/methodology" element={<Methodology />} />
-              </Routes>
-            </Suspense>
-          </Router>
+          <LiveModeProvider>
+            <Router>
+              <Toaster />
+              <SupportAndFeedback />
+              <Suspense fallback={
+                <div className="h-screen bg-black flex items-center justify-center text-[#00ff00] font-mono">
+                  <Loader2 className="animate-spin" size={32} />
+                </div>
+              }>
+                <Routes>
+                  <Route path="/" element={<Dashboard activePersona={activePersona} personas={personas} settings={settings} />} />
+                  <Route path="/target/:id" element={<TargetView activePersona={activePersona} settings={settings} />} />
+                  <Route path="/methodology" element={<Methodology />} />
+                </Routes>
+              </Suspense>
+            </Router>
+          </LiveModeProvider>
         </AuthGuard>
-      </ErrorBoundary>
+      </SystemShield>
     </ThemeProvider>
   );
 }

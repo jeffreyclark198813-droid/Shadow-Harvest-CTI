@@ -34,7 +34,8 @@ export const IntelligenceSynthesizer: React.FC<IntelligenceSynthesizerProps> = (
     try {
       const output = await synthesizeIntelligence(targetName, intelligenceContext, format, focusAreas, persona);
       setResult(output);
-      setTitle(`${targetName} ${format.charAt(0).toUpperCase() + format.slice(1)} - ${new Date().toLocaleDateString()}`);
+      const formatLabel = (format || 'Report');
+      setTitle(`${targetName} ${formatLabel.charAt(0).toUpperCase() + formatLabel.slice(1)} - ${new Date().toLocaleDateString()}`);
     } catch (error) {
       console.error("Synthesis failed:", error);
     } finally {

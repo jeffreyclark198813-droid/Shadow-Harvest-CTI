@@ -1,59 +1,169 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
 
-    function isAuthenticated() {
+    // 2. Reusable Helpers
+    function isSignedIn() {
       return request.auth != null;
     }
 
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-        (request.auth.uid == "DhmPl4eWWOhZALvVs2qTiGAOpsP2" ||
-         request.auth.token.email == "jeffreyclark198813@gmail.com" ||
-         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+      return isSignedIn() && (
+        request.auth.uid == "DhmPl4eWWOhZALvVs2qTiGAOpsP2" ||
+        (request.auth.token != null && request.auth.token.email == "jeffreyclark198813@gmail.com")
+      );
     }
 
-    // Rules for user documents, settings, personas, ai_personas
+    // 3. Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['role']) &&
+             data.role in ['admin', 'moderator', 'user'];
+    }
+
+    function isValidPersona(data) {
+      return data.keys().hasAll(['userId', 'name']) &&
+             data.userId == request.auth.uid &&
+             data.name is string && data.name.size() <= 100;
+    }
+
+    function isValidTarget(data) {
+      return data.keys().hasAll(['name', 'createdBy', 'createdAt', 'updatedAt']) &&
+             data.createdBy == request.auth.uid &&
+             data.name is string && data.name.size() <= 200 &&
+             data.createdAt == request.time &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidHypothesis(data) {
+      return data.keys().hasAll(['createdBy']) &&
+             data.createdBy == request.auth.uid;
+    }
+
+    // 4. Collection Rules
+
+    // Firestore connection probe
+    match /test/{docId} {
+      allow get: if true;
+    }
+
+    // User Profiles & Private Subcollections
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId) || isAdmin();
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['username', 'avatar', 'bio'])) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
 
-      match /{allSubcollections=**} {
-        allow read, write: if isOwner(userId) || isAdmin();
+      // Subcollections: Settings, Personas, AI Personas
+      match /settings/{settingId} {
+        allow get, list, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /personas/{personaId} {
+        allow get, list, delete: if isOwner(userId) || isAdmin();
+        allow create, update: if isOwner(userId) && isValidPersona(incoming());
+      }
+
+      match /ai_personas/{personaId} {
+        allow get, list, write, delete: if isOwner(userId) || isAdmin();
       }
     }
 
-    // Rules for API Endpoints
+    // API Endpoints Registry
     match /api_endpoints/{endpointId} {
-      allow read, write: if isAuthenticated();
+      allow list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && incoming().createdBy == request.auth.uid;
+      allow update: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
     }
 
-    // Rules for Targets and all nested subcollections
+    // Targets & Nested Investigation Collections
     match /targets/{targetId} {
-      allow read, write: if isAuthenticated();
+      allow list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidTarget(incoming());
+      allow update: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow delete: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
 
-      match /{allSubcollections=**} {
-        allow read, write: if isAuthenticated();
+      // Nested subcollections under targets
+      match /{subcollection}/{docId} {
+        allow read, write: if isSignedIn() && (get(/databases/$(database)/documents/targets/$(targetId)).data.createdBy == request.auth.uid || isAdmin());
       }
     }
 
-    // Rules for Global Events
+    // API Sources Feed Tracker
+    match /api_sources/{sourceId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // Provenance Lineage Records
+    match /provenance/{provenanceId} {
+      allow get, list: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Temporal Drifts
+    match /temporal_drifts/{driftId} {
+      allow get, list: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Hypotheses
+    match /hypotheses/{hypothesisId} {
+      allow list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow get: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidHypothesis(incoming());
+      allow update, delete: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+    }
+
+    // Global Caches & Narratives
+    match /intel_caches/{cacheId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
     match /global_events/{eventId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // CollectionGroup matchers for graph nodes and edges
+    match /audit_logs/{logId} {
+      allow get, list: if isAdmin();
+      allow create: if isSignedIn();
+    }
+
+    // Collection Group matches for graph
     match /{path=**}/nodes/{nodeId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isSignedIn();
     }
-
     match /{path=**}/edges/{edgeId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isSignedIn();
     }
   }
 }

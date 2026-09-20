@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, saveUserSettings } from '../services/dbService';
 import { auth } from '../firebase';
-import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff, Network, Sun, Moon } from 'lucide-react';
+import { Shield, Key, Database, Server, Settings as SettingsIcon, AlertTriangle, Globe, EyeOff, Network, Sun, Moon, RefreshCw, Clock, Check } from 'lucide-react';
 import { motion } from 'motion/react';
 import { DynamicAPIEndpointRegistry } from './DynamicAPIEndpointRegistry';
 import { useTheme } from './ThemeProvider';
@@ -12,9 +12,18 @@ interface SystemSettingsProps {
 
 export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
   const [role, setRole] = useState<'admin' | 'moderator' | 'user'>(settings?.role || 'admin');
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(settings?.autoRefreshInterval ?? 30);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'rbac' | 'kafka' | 'integrations' | 'anonymity' | 'theme'>('rbac');
+  const [savingPolling, setSavingPolling] = useState(false);
+  const [activeTab, setActiveTab] = useState<'rbac' | 'polling' | 'kafka' | 'integrations' | 'anonymity' | 'theme'>('rbac');
   const { theme, toggleTheme, setTheme } = useTheme();
+
+  useEffect(() => {
+    if (settings) {
+      if (settings.role) setRole(settings.role);
+      if (settings.autoRefreshInterval !== undefined) setAutoRefreshInterval(settings.autoRefreshInterval);
+    }
+  }, [settings]);
 
   const handleSaveRole = async () => {
     if (!auth.currentUser || !settings) return;
@@ -31,6 +40,22 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
     }
   };
 
+  const handleSavePollingInterval = async (interval: number) => {
+    setAutoRefreshInterval(interval);
+    if (!auth.currentUser || !settings) return;
+    setSavingPolling(true);
+    try {
+      await saveUserSettings(auth.currentUser.uid, {
+        ...settings,
+        autoRefreshInterval: interval
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingPolling(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-4 border-b border-harvest-border">
@@ -39,6 +64,12 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
           className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'rbac' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
         >
           Access & Roles
+        </button>
+        <button
+          onClick={() => setActiveTab('polling')}
+          className={`pb-2 px-2 text-[10px] font-bold uppercase tracking-widest ${activeTab === 'polling' ? 'border-b-2 border-harvest-accent text-white' : 'text-gray-500'}`}
+        >
+          Auto-Refresh & Polling
         </button>
         <button
           onClick={() => setActiveTab('kafka')}
@@ -65,6 +96,80 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({ settings }) => {
           Theme & Appearance
         </button>
       </div>
+
+      {activeTab === 'polling' && (
+        <div className="hardware-surface p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="mono-label flex items-center gap-2 text-white">
+                <RefreshCw size={14} className={`text-harvest-accent ${savingPolling ? 'animate-spin' : ''}`}/>
+                Automated Threat Intelligence Sync & Polling Interval
+              </h3>
+              <p className="text-[11px] font-mono text-gray-400 mt-1">
+                Configure background polling cadence for active threat feeds, target updates, and OSINT correlations.
+              </p>
+            </div>
+            <div className="px-3 py-1 bg-black/50 border border-harvest-border rounded-xl text-xs font-mono">
+              <span className="text-gray-400">Current Cadence: </span>
+              <span className="text-harvest-accent font-bold">
+                {autoRefreshInterval === 0 ? 'Disabled (Manual Only)' : `${autoRefreshInterval}s Interval`}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { interval: 0, label: 'Manual Only', tag: 'OFF', desc: 'No automatic background refetching. Refreshes only when requested by user.' },
+              { interval: 10, label: '10 Seconds', tag: 'HIGH FREQUENCY', desc: 'Real-time tactical mode. Optimal for active monitoring and immediate telemetry ingestion.' },
+              { interval: 30, label: '30 Seconds', tag: 'RECOMMENDED', desc: 'Balanced operational cadence. Prevents stale intelligence while preserving API quota.' },
+              { interval: 60, label: '1 Minute', tag: 'STANDARD', desc: 'Standard background refresh interval suitable for long monitoring sessions.' },
+              { interval: 120, label: '2 Minutes', tag: 'LIGHTWEIGHT', desc: 'Extended interval for background workspaces and secondary analysis screens.' },
+              { interval: 300, label: '5 Minutes', tag: 'LOW BANDWIDTH', desc: 'Minimal network consumption. Periodic batch synchronization.' },
+            ].map(item => {
+              const isSelected = autoRefreshInterval === item.interval;
+              return (
+                <div
+                  key={item.interval}
+                  onClick={() => handleSavePollingInterval(item.interval)}
+                  className={`p-4 rounded-xl border cursor-pointer transition-all relative ${
+                    isSelected
+                      ? 'bg-harvest-accent/10 border-harvest-accent shadow-[0_0_15px_rgba(0,255,153,0.15)]'
+                      : 'bg-black/50 border-white/5 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex justify-between items-center mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <Clock size={13} className={isSelected ? 'text-harvest-accent' : 'text-gray-500'} />
+                      <span className={`text-xs font-bold font-mono uppercase tracking-wider ${isSelected ? 'text-white' : 'text-gray-400'}`}>
+                        {item.label}
+                      </span>
+                    </div>
+                    <span className={`text-[9px] font-mono px-2 py-0.5 rounded font-black ${
+                      item.tag === 'RECOMMENDED' 
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
+                        : item.tag === 'HIGH FREQUENCY'
+                          ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                          : 'bg-white/5 text-gray-500'
+                    }`}>
+                      {item.tag}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 font-mono leading-relaxed mt-2">
+                    {item.desc}
+                  </p>
+                  {isSelected && (
+                    <div className="mt-3 pt-2 border-t border-harvest-accent/20 flex items-center justify-between text-[9px] font-mono text-harvest-accent">
+                      <span>CONFIGURATION ACTIVE</span>
+                      <Check size={12} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
 
       {activeTab === 'rbac' && (
         <div className="hardware-surface p-6 space-y-6">

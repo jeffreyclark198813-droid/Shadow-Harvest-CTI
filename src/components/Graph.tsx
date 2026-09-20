@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { Loader2, Zap, Network, Layers, GitMerge, Filter, ChevronDown, ChevronUp, Search, HelpCircle, Download, Database, Share2 } from 'lucide-react';
+import { Loader2, Zap, Network, Layers, GitMerge, Filter, ChevronDown, ChevronUp, Search, HelpCircle, Download, Database, Share2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { HelpTooltip } from './HelpTooltip';
+import { Neo4jIntegrationModal } from './Neo4jIntegrationModal';
+import { calculateGraphStats } from '../services/unifiedGraphService';
 
 export interface Node extends d3.SimulationNodeDatum {
   id: string;
@@ -43,6 +45,7 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
   const [hiddenSources, setHiddenSources] = useState<Set<string>>(new Set());
   const [minConfidence, setMinConfidence] = useState(0);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [isNeo4jModalOpen, setIsNeo4jModalOpen] = useState(false);
 
   const handleExportCSV = () => {
     const nodeMap = new Map();
@@ -221,9 +224,24 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
 
     svg.call(zoom);
 
+    // Deep clone nodes and links so D3 force simulation doesn't mutate React state or cause invalid source/target mappings
+    const simNodes: Node[] = filteredNodes.map(n => ({ ...n }));
+    const simNodeIds = new Set(simNodes.map(n => n.id));
+    const simLinks: Link[] = filteredLinks
+      .filter(l => {
+        const s = typeof l.source === 'object' ? (l.source as Node).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as Node).id : l.target;
+        return simNodeIds.has(s) && simNodeIds.has(t);
+      })
+      .map(l => ({
+        ...l,
+        source: typeof l.source === 'object' ? (l.source as Node).id : l.source,
+        target: typeof l.target === 'object' ? (l.target as Node).id : l.target
+      }));
+
     // Filter simulation
-    const simulation = d3.forceSimulation<Node>(filteredNodes)
-      .force("link", d3.forceLink<Node, Link>(filteredLinks).id(d => d.id).distance(150))
+    const simulation = d3.forceSimulation<Node>(simNodes)
+      .force("link", d3.forceLink<Node, Link>(simLinks).id(d => d.id).distance(150))
       .force("charge", d3.forceManyBody().strength(-500))
       .force("center", d3.forceCenter(width / 2, height / 2));
 
@@ -231,7 +249,7 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
       .attr("stroke", "#444")
       .attr("stroke-opacity", 0.6)
       .selectAll("line")
-      .data(filteredLinks)
+      .data(simLinks)
       .join("line")
       .attr("stroke-width", 1.5);
 
@@ -239,7 +257,7 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
       .attr("stroke", "#111")
       .attr("stroke-width", 1.5)
       .selectAll("g")
-      .data(filteredNodes)
+      .data(simNodes)
       .join("g")
       .on("click", (event, d) => {
         setSelectedNode(d);
@@ -536,24 +554,31 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
       <div className="absolute top-4 right-4 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2">
           <button 
-            onClick={handleExportCSV}
-            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+            onClick={() => setIsNeo4jModalOpen(true)}
+            className="hardware-button px-3.5 py-2 flex items-center gap-2 !bg-emerald-950/60 border border-emerald-500/40 hover:border-emerald-400 backdrop-blur-md transition-all shadow-lg"
           >
-            <Download size={14} className="text-gray-400" />
+            <Database size={14} className="text-emerald-400" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 font-mono">Neo4j & Maltego Sync</span>
+          </button>
+          <button 
+            onClick={handleExportCSV}
+            className="hardware-button px-3 py-2 flex items-center gap-1.5 !bg-black/80 backdrop-blur-md"
+          >
+            <Download size={13} className="text-gray-400" />
             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 font-mono">CSV</span>
           </button>
           <button 
             onClick={handleExportNeo4j}
-            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+            className="hardware-button px-3 py-2 flex items-center gap-1.5 !bg-black/80 backdrop-blur-md"
           >
-            <Database size={14} className="text-[#0088ff]" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[#0088ff] font-mono">Neo4j</span>
+            <Database size={13} className="text-[#0088ff]" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[#0088ff] font-mono">Cypher</span>
           </button>
           <button 
             onClick={handleExportMaltego}
-            className="hardware-button px-4 py-2 flex items-center gap-2 !bg-black/80 backdrop-blur-md"
+            className="hardware-button px-3 py-2 flex items-center gap-1.5 !bg-black/80 backdrop-blur-md"
           >
-            <Share2 size={14} className="text-[#ff00ff]" />
+            <Share2 size={13} className="text-[#ff00ff]" />
             <span className="text-[10px] font-bold uppercase tracking-widest text-[#ff00ff] font-mono">Maltego</span>
           </button>
           <HelpTooltip content="The Correlation Engine uses analytical models to find hidden paths, clusters, and keystone hubs within the entity graph." />
@@ -650,6 +675,14 @@ export const Graph: React.FC<GraphProps> = ({ nodes, links, onRunCorrelation, co
           )}
         </AnimatePresence>
       </div>
+
+      {/* Neo4j & Maltego Integration Modal */}
+      <Neo4jIntegrationModal
+        isOpen={isNeo4jModalOpen}
+        onClose={() => setIsNeo4jModalOpen(false)}
+        nodes={nodes as any}
+        edges={links as any}
+      />
     </div>
   );
 };
