@@ -46,6 +46,12 @@ import { DataAnonymizationView } from './DataAnonymizationView';
 import { InfrastructureThreatVisualizer } from './InfrastructureThreatVisualizer';
 import { ThreatSearchFilterBar, ThreatFilterCriteria } from './ThreatSearchFilterBar';
 import { RateLimitAlert } from './RateLimitAlert';
+import { PanelSafeBoundary } from './PanelSafeBoundary';
+import { SecurityGovernanceView } from './SecurityGovernanceView';
+import { FederatedSearchView } from './FederatedSearchView';
+import { DynamicAPIEndpointRegistry } from './DynamicAPIEndpointRegistry';
+import { AuthorityPolicyManager } from './AuthorityPolicyManager';
+import { SystemGovernanceOverview } from './SystemGovernanceOverview';
 import { useAutoRefreshThreats } from '../hooks/useAutoRefreshThreats';
 import { useLiveMode } from '../context/LiveModeContext';
 import { motion, AnimatePresence } from 'motion/react';
@@ -302,7 +308,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                 >
-                  <InfrastructureThreatVisualizer targets={targets} onSelectTarget={t => navigate(`/target/${t.id}`)} />
+                  <PanelSafeBoundary title="Topology Map">
+                    <InfrastructureThreatVisualizer targets={targets} onSelectTarget={t => navigate(`/target/${t.id}`)} />
+                  </PanelSafeBoundary>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -327,17 +335,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
 
                 {/* Global Entropy Heatmap */}
                 <div className="mb-6">
-                  <GlobalEntropyHeatmap />
+                  <PanelSafeBoundary title="Global Entropy Heatmap">
+                    <GlobalEntropyHeatmap />
+                  </PanelSafeBoundary>
                 </div>
 
                 {/* Correlation Heatmap */}
                 <div className="mb-6">
-                  <CorrelationHeatmap targets={targets} />
+                  <PanelSafeBoundary title="Correlation Heatmap">
+                    <CorrelationHeatmap targets={targets} />
+                  </PanelSafeBoundary>
                 </div>
 
                 {/* Temporal Threat Heatmap */}
                 <div className="mb-6">
-                  <TemporalThreatHeatmap targets={targets} />
+                  <PanelSafeBoundary title="Temporal Threat Heatmap">
+                    <TemporalThreatHeatmap targets={targets} />
+                  </PanelSafeBoundary>
                 </div>
 
                 {/* Target Cards */}
@@ -398,7 +412,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                             className={`p-2 transition-all border border-transparent rounded ${
                               target.isPriorityAsset 
                                 ? 'text-yellow-400 hover:bg-yellow-400/10 hover:border-yellow-400/30 opacity-100' 
-                                : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-0 group-hover:opacity-100'
+                                : 'text-gray-500 hover:bg-black/50 hover:text-yellow-400 hover:border-yellow-400/30 opacity-100 md:opacity-0 md:group-hover:opacity-100'
                             }`}
                             title={target.isPriorityAsset ? "Remove Priority Status" : "Mark as Priority Asset"}
                           >
@@ -409,7 +423,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                               e.stopPropagation();
                               setProvenanceTarget(target);
                             }}
-                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
+                            className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
                             title="Provenance State Machine"
                           >
                             <Database size={16} />
@@ -419,14 +433,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
                               e.stopPropagation();
                               setQuickScanTarget(target);
                             }}
-                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
+                            className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50 hover:text-harvest-accent rounded text-gray-500 transition-all border border-transparent hover:border-harvest-accent/30"
                             title="Quick Scan"
                           >
                             <Search size={16} />
                           </button>
                           <button 
                             onClick={(e) => handleDeleteTarget(e, target.id as string)}
-                            className="p-2 opacity-0 group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
+                            className="p-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50 hover:text-red-500 rounded text-gray-500 transition-all border border-transparent hover:border-red-500/30"
                             title="Delete Target"
                           >
                             <Trash size={16} />
@@ -569,6 +583,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
             </div>
           </div>
         );
+      case 'federated-search':
+        return <FederatedSearchView />;
+      case 'daer':
+        return <DynamicAPIEndpointRegistry />;
+      case 'authority':
+        return <AuthorityPolicyManager />;
       case 'monitor':
         return (
           <div className="space-y-4">
@@ -590,6 +610,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
             ))}
           </div>
         );
+      case 'governance':
+        return (
+          <div className="space-y-8">
+            <SystemGovernanceOverview />
+            <div className="pt-8 border-t border-harvest-border">
+              <SecurityGovernanceView />
+            </div>
+          </div>
+        );
       default:
         return null;
     }
@@ -609,7 +638,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ activePersona, personas, s
       persona={activePersona}
       onLogout={() => auth.signOut()}
     >
-      {renderContent()}
+      <PanelSafeBoundary title={`${activeTab.toUpperCase()} tab`}>
+        {renderContent()}
+      </PanelSafeBoundary>
 
       {/* Provenance Modal */}
       <AnimatePresence>

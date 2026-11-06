@@ -7,6 +7,7 @@ import { Toaster } from './components/Toaster';
 import { SupportAndFeedback } from './components/SupportAndFeedback';
 import { LiveModeProvider } from './context/LiveModeContext';
 import { subscribeToUserPersonas, subscribeToUserSettings, UserPersona, UserSettings } from './services/dbService';
+import { SystemInitializationService } from './services/SystemInitializationService';
 import { auth } from './firebase';
 import { Loader2 } from 'lucide-react';
 import { useAPIHealthCheck } from './hooks/useAPIHealthCheck';
@@ -35,7 +36,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (user) {
+      SystemInitializationService.ensureBaseline(user.uid);
+    }
+  }, [user]);
+
+  useEffect(() => {
     if (!user) return;
+
+    // Safety fallback: ensure loading does not hang indefinitely if Firestore is offline
+    const safetyTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 2500);
 
     const unsubSettings = subscribeToUserSettings(user.uid, (s) => {
       setSettings(s);
@@ -47,6 +59,7 @@ export default function App() {
     });
 
     return () => {
+      clearTimeout(safetyTimeout);
       unsubSettings();
       unsubPersonas();
     };

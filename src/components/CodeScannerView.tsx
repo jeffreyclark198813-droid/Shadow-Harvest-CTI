@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Target } from '../services/dbService';
-import { Code2, Github, ShieldAlert, Cpu, AlertTriangle, Key } from 'lucide-react';
+import { Code2, GitBranch, ShieldAlert, Cpu, AlertTriangle, Key } from 'lucide-react';
 import { scanCodeRepositories } from '../services/geminiService';
 import { motion, AnimatePresence } from 'motion/react';
 import { useEnduringState } from '../hooks/useEnduringState';
@@ -37,7 +37,7 @@ export const CodeScannerView: React.FC<CodeScannerViewProps> = ({ target }) => {
           disabled={loading}
           className="hardware-button px-4 py-2 flex items-center gap-2"
         >
-          {loading ? <Cpu size={14} className="animate-spin" /> : <Github size={14} />}
+          {loading ? <Cpu size={14} className="animate-spin" /> : <GitBranch size={14} />}
           {loading ? "SCANNING..." : "INITIATE SCAN"}
         </button>
       </div>

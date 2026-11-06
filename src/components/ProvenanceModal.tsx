@@ -21,7 +21,11 @@ export const ProvenanceModal: React.FC<ProvenanceModalProps> = ({ target, onClos
 
   useEffect(() => {
     if (target.id) {
-      const unsub = subscribeToProvenance(target.id, setProvenance);
+      const unsub = subscribeToProvenance(target.id, (provs) => {
+        if (provs && provs.length > 0) {
+          setProvenance(provs[0]);
+        }
+      });
       return () => unsub();
     }
   }, [target.id]);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, collection, query, getDocs, collectionGroup, onSnapshot } from '../firebase';
+import { db, collection, query, getDocs, collectionGroup, onSnapshot, OperationType, handleFirestoreError } from '../firebase';
 import { Graph, Node, Link } from './Graph';
 import { EntityNode, EntityEdge } from '../services/dbService';
 import { Network, Loader2 } from 'lucide-react';
@@ -13,43 +13,47 @@ export const GraphDashboardView: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
 
-      // In a real scenario, we might want to subscribe to changes.
-      // For now, let's just fetch all nodes and edges.
-      // Using collectionGroup is generally better for querying subcollections across many documents.
-      
-      const nodesQuery = collectionGroup(db, 'nodes');
-      const edgesQuery = collectionGroup(db, 'edges');
-      
-      const [nodesSnap, edgesSnap] = await Promise.all([
-        getDocs(nodesQuery),
-        getDocs(edgesQuery)
-      ]);
+      try {
+        const nodesQuery = collectionGroup(db, 'nodes');
+        const edgesQuery = collectionGroup(db, 'edges');
+        
+        const [nodesSnap, edgesSnap] = await Promise.all([
+          getDocs(nodesQuery),
+          getDocs(edgesQuery)
+        ]);
 
-      const fetchedNodes: Node[] = nodesSnap.docs.map(doc => {
-        const data = doc.data() as EntityNode;
-        return {
-          id: doc.id,
-          label: data.label,
-          type: data.type,
-          metadata: data.metadata
-        };
-      });
+        const fetchedNodes: Node[] = nodesSnap.docs.map(doc => {
+          const data = doc.data() as EntityNode;
+          return {
+            id: doc.id,
+            label: data.label,
+            type: data.type,
+            metadata: data.metadata
+          };
+        });
 
-      const fetchedLinks: Link[] = edgesSnap.docs.map(doc => {
-        const data = doc.data() as EntityEdge;
-        return {
-          source: data.sourceId,
-          target: data.targetId,
-          relationship: data.relationship,
-          confidence: data.confidence
-        };
-      });
+        const fetchedLinks: Link[] = edgesSnap.docs.map(doc => {
+          const data = doc.data() as EntityEdge;
+          return {
+            source: data.sourceId,
+            target: data.targetId,
+            relationship: data.relationship,
+            confidence: data.confidence
+          };
+        });
 
-      setNodes(fetchedNodes);
-      setLinks(fetchedLinks);
-      setLoading(false);
+        setNodes(fetchedNodes);
+        setLinks(fetchedLinks);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'nodes/edges');
+      } finally {
+        setLoading(false);
+      }
     };
 
     fetchData();

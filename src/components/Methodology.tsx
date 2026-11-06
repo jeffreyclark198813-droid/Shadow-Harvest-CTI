@@ -1,13 +1,27 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, BookOpen, Info, Layers, Share2, Activity, Scale, Shield } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { ChevronLeft, BookOpen, Info, Layers, Share2, Activity, Scale, Shield, Lock } from 'lucide-react';
 import { METHODOLOGY } from '../constants/methodology';
 import { EpistemicConstitutionView } from './EpistemicConstitutionView';
+import { EthicalAIGuidelinesView } from './EthicalAIGuidelinesView';
 import { motion } from 'motion/react';
 
 export const Methodology: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'epistemic' | 'sop'>('epistemic');
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState<'epistemic' | 'ethics' | 'sop'>('epistemic');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    if (tabParam === 'ethics') {
+      setActiveTab('ethics');
+    } else if (tabParam === 'sop') {
+      setActiveTab('sop');
+    } else if (tabParam === 'epistemic') {
+      setActiveTab('epistemic');
+    }
+  }, [location.search]);
 
   return (
     <div className="flex-1 flex flex-col h-screen bg-[#0a0a0a] text-gray-300 font-mono overflow-hidden">
@@ -44,6 +58,17 @@ export const Methodology: React.FC = () => {
             <span>Epistemic Constitution</span>
           </button>
           <button
+            onClick={() => setActiveTab('ethics')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs uppercase font-bold transition-all ${
+              activeTab === 'ethics'
+                ? 'bg-[#00ff00] text-black shadow-[0_0_10px_rgba(0,255,0,0.2)]'
+                : 'text-gray-500 hover:text-white'
+            }`}
+          >
+            <Lock size={12} />
+            <span>Ethical AI Charter</span>
+          </button>
+          <button
             onClick={() => setActiveTab('sop')}
             className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs uppercase font-bold transition-all ${
               activeTab === 'sop'
@@ -61,6 +86,10 @@ export const Methodology: React.FC = () => {
         {activeTab === 'epistemic' ? (
           <div className="max-w-6xl mx-auto">
             <EpistemicConstitutionView />
+          </div>
+        ) : activeTab === 'ethics' ? (
+          <div className="max-w-6xl mx-auto">
+            <EthicalAIGuidelinesView />
           </div>
         ) : (
           <div className="max-w-5xl mx-auto space-y-12">

@@ -1,5 +1,5 @@
 import { 
-  db, collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, OperationType, handleFirestoreError, doc, getDocs, setDoc, serverTimestamp
+  db, collection, addDoc, updateDoc, deleteDoc, query, where, onSnapshot, Timestamp, OperationType, handleFirestoreError, doc, getDocs, setDoc, serverTimestamp, collectionGroup, limit
 } from '../firebase';
 import { PersonaSocialCorrelationResult } from '../types/social_osint';
 
@@ -448,12 +448,27 @@ export const addMonitoringEvent = async (event: Omit<MonitoringEvent, 'id' | 'ti
 
 export const subscribeToMonitoringEvents = (targetId: string, callback: (events: MonitoringEvent[]) => void) => {
   const path = `targets/${targetId}/monitoring_events`;
-  const q = query(collection(db, path));
+  const q = query(collection(db, path), limit(50));
   return onSnapshot(q, (snapshot) => {
-    const events = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MonitoringEvent));
+    const events = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) } as MonitoringEvent));
     callback(events);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const subscribeToAllMonitoringEvents = (callback: (events: MonitoringEvent[]) => void) => {
+  const path = 'targets';
+  // Note: Firestore doesn't support recursive collection group queries without indexes.
+  // For production readiness, we use a collectionGroup query.
+  const q = query(collectionGroup(db, 'monitoring_events'), limit(50));
+  return onSnapshot(q, (snapshot) => {
+    const events = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) } as MonitoringEvent));
+    // Sort by timestamp descending
+    events.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+    callback(events);
+  }, (error) => {
+    console.error("[dbService] CollectionGroup monitoring_events failed:", error);
   });
 };
 
@@ -987,9 +1002,9 @@ export const calculateAttributionConfidence = (
   // 3. Unique Identifiers
   let uniqueIdPoints = 0;
   profiles.forEach(p => {
-    if (p.identifiers.pgpFingerprints?.length > 0) uniqueIdPoints += 15;
-    if (p.identifiers.wallets?.length > 0) uniqueIdPoints += 10;
-    if (p.identifiers.emails?.length > 0) uniqueIdPoints += 5;
+    if (p.identifiers?.pgpFingerprints?.length > 0) uniqueIdPoints += 15;
+    if (p.identifiers?.wallets?.length > 0) uniqueIdPoints += 10;
+    if (p.identifiers?.emails?.length > 0) uniqueIdPoints += 5;
   });
   const finalUniquePoints = Math.min(uniqueIdPoints, 25);
   score += finalUniquePoints;
@@ -1090,21 +1105,88 @@ export const importUserData = async (userId: string, bundle: UserDataBundle) => 
 
 // Intelligence Operations Services
 
-import { ArtifactProvenance, TemporalDrift, Hypothesis, AuditLogEntry, EntropyPoint, APISource, APIHealthStatus } from '../types/intelligence_ops';
+import { ArtifactProvenance, TemporalDrift, Hypothesis, AuditLogEntry, EntropyPoint, APISource, APIHealthStatus, QuarantineEntry } from '../types/intelligence_ops';
 
-export const subscribeToProvenance = (artifactId: string, callback: (provenance: ArtifactProvenance | null) => void) => {
+export const subscribeToProvenance = (artifactId: string, callback: (provenance: ArtifactProvenance[]) => void) => {
   const path = 'provenance';
   const q = query(collection(db, path), where('artifactId', '==', artifactId));
   return onSnapshot(q, (snapshot) => {
-    if (!snapshot.empty) {
-      const doc = snapshot.docs[0];
-      callback({ id: doc.id, ...doc.data() } as ArtifactProvenance);
-    } else {
-      callback(null);
-    }
+    const provs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ArtifactProvenance));
+    callback(provs);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, path);
   });
+};
+
+export const fetchProvenanceLineage = async (artifactId: string): Promise<ArtifactProvenance[]> => {
+  const path = 'provenance';
+  const lineage: ArtifactProvenance[] = [];
+  const visited = new Set<string>();
+  
+  const resolve = async (id: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    
+    const q = query(collection(db, path), where('artifactId', '==', id));
+    const snap = await getDocs(q);
+    
+    for (const doc of snap.docs) {
+      const data = { id: doc.id, ...doc.data() } as ArtifactProvenance;
+      lineage.push(data);
+      if (data.parentIds && data.parentIds.length > 0) {
+        await Promise.all(data.parentIds.map(pId => resolve(pId)));
+      }
+    }
+  };
+
+  await resolve(artifactId);
+  return lineage;
+};
+
+export const addProvenance = async (prov: Omit<ArtifactProvenance, 'id' | 'timestamp'>) => {
+  const path = 'provenance';
+  try {
+    const docRef = await addDoc(collection(db, path), {
+      ...prov,
+      timestamp: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const subscribeToQuarantine = (callback: (entries: QuarantineEntry[]) => void) => {
+  const path = 'quarantine';
+  const q = query(collection(db, path));
+  return onSnapshot(q, (snapshot) => {
+    const entries = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuarantineEntry));
+    callback(entries);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+};
+
+export const addToQuarantine = async (entry: Omit<QuarantineEntry, 'id' | 'timestamp'>) => {
+  const path = 'quarantine';
+  try {
+    const docRef = await addDoc(collection(db, path), {
+      ...entry,
+      timestamp: serverTimestamp()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const deleteFromQuarantine = async (id: string) => {
+  const path = 'quarantine';
+  try {
+    await deleteDoc(doc(db, path, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
 };
 
 export const subscribeToTemporalDrifts = (callback: (drifts: TemporalDrift[]) => void) => {
@@ -1192,16 +1274,43 @@ export const addEvidenceToHypothesis = async (
 };
 
 export const getEntropyHeatmapData = async (): Promise<EntropyPoint[]> => {
-  // Mocking some entropy data points for the visualization
-  return [
-    { id: '1', x: 20, y: 30, value: 0.8, label: 'Node A7-X9', artifactId: 'target-1' },
-    { id: '2', x: 45, y: 60, value: 0.95, label: 'Gateway Zeta', artifactId: 'target-2' },
-    { id: '3', x: 70, y: 20, value: 0.4, label: 'Proxy Node 4', artifactId: 'target-3' },
-    { id: '4', x: 85, y: 75, value: 0.65, label: 'Endpoint Delta', artifactId: 'target-4' },
-    { id: '5', x: 30, y: 85, value: 0.85, label: 'Relay Gamma', artifactId: 'target-5' },
-    { id: '6', x: 10, y: 10, value: 0.3, label: 'Audit Log Alpha', artifactId: 'target-6' },
-    { id: '7', x: 55, y: 40, value: 0.75, label: 'Sensor Omega', artifactId: 'target-7' },
-  ];
+  const path = 'targets';
+  try {
+    const q = query(collection(db, path), limit(20));
+    const snapshot = await getDocs(q);
+    
+    if (snapshot.empty) {
+      return [
+        { id: 'baseline', x: 50, y: 50, value: 0.1, label: 'System Baseline', artifactId: 'initial' }
+      ];
+    }
+
+    return snapshot.docs.map((doc, index) => {
+      const data = doc.data() as Target;
+      // Deterministic positioning based on ID hash for consistent layout
+      const idStr = doc.id;
+      let hash = 0;
+      for (let i = 0; i < idStr.length; i++) {
+        hash = ((hash << 5) - hash) + idStr.charCodeAt(i);
+      }
+      
+      const x = Math.abs(hash % 100);
+      const y = Math.abs((hash >> 8) % 100);
+      const value = data.confidenceScore ? data.confidenceScore / 100 : 0.5;
+
+      return {
+        id: doc.id,
+        x,
+        y,
+        value,
+        label: data.name,
+        artifactId: doc.id
+      };
+    });
+  } catch (error) {
+    console.warn("[dbService] Failed to derive entropy from targets, using secure fallback", error);
+    return [{ id: 'error-node', x: 10, y: 10, value: 0.9, label: 'Sensor Fault', artifactId: 'system' }];
+  }
 };
 
 export const subscribeToAPISources = (callback: (sources: APISource[]) => void) => {

@@ -21,17 +21,17 @@ export const ThreatIntelligenceWidget: React.FC<{ context: string }> = ({ contex
       .then(async res => {
         const data = await res.json().catch(() => null);
         if (!res.ok) {
-          if (data && data.data) {
-            setIntel(data.data);
+          if (data && (data.data || data.summary)) {
+            setIntel(data.data || data);
             return null;
           }
-          throw new Error((data && data.error) || 'Failed to fetch threat intelligence.');
+          throw new Error((data && (data.error?.message || data.error)) || 'Failed to fetch threat intelligence.');
         }
         return data;
       })
       .then(data => {
         if (data) {
-          setIntel(data);
+          setIntel(data.data || data);
         }
         setLoading(false);
       })

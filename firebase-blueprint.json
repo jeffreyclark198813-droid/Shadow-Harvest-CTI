@@ -41,16 +41,83 @@
     },
     "ApiEndpoint": {
       "title": "API Endpoint",
-      "description": "Registered CTI API source.",
+      "description": "Registered CTI API source (DAER).",
       "type": "object",
       "properties": {
-        "name": { "type": "string" },
-        "type": { "type": "string" },
-        "base_url": { "type": "string" },
-        "classification_tag": { "type": "string" },
+        "endpoint_id": { "type": "string" },
+        "provider": { "type": "string" },
+        "uri": { "type": "string" },
+        "protocol": { "type": "string", "enum": ["REST", "GRAPHQL", "STREAM", "WEBHOOK"] },
+        "authentication": { "type": "object" },
+        "schema": { "type": "object" },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "policy": { "type": "string" },
+        "rate_limits": { "type": "object" },
+        "timeout": { "type": "number" },
+        "retry_policy": { "type": "object" },
+        "provenance_requirements": { "type": "array" },
+        "authorization_requirements": { "type": "array" },
+        "metadata": { "type": "object" },
+        "enabled": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["DISCOVERED", "CONFIGURED", "VERIFIED", "AUTHENTICATED", "AUTHORIZED", "ACTIVE", "DEGRADED", "DISABLED", "REVOKED"] },
         "createdBy": { "type": "string" }
       },
-      "required": ["name", "createdBy"]
+      "required": ["endpoint_id", "provider", "uri", "protocol", "authentication", "createdBy"]
+    },
+    "AuthorityPolicy": {
+      "title": "Authority Policy (IAMLaw)",
+      "description": "Application authorization policy records.",
+      "type": "object",
+      "properties": {
+        "principal": { "type": "string" },
+        "authenticated_identity": { "type": "string" },
+        "requested_resource": { "type": "string" },
+        "requested_action": { "type": "string" },
+        "policy": { "type": "object" },
+        "jurisdiction_context": { "type": "string" },
+        "authorization_source": { "type": "string" },
+        "authorization_status": { "type": "string", "enum": ["AUTHORIZED", "DENIED", "NOT_AUTHORIZED", "PENDING_VERIFICATION", "EXPIRED", "REVOKED", "UNKNOWN"] },
+        "effective_from": { "type": "object" },
+        "expires_at": { "type": "object" },
+        "audit_id": { "type": "string" }
+      },
+      "required": ["principal", "requested_resource", "requested_action", "authorization_status"]
+    },
+    "RegistryIdentifier": {
+      "title": "Registry Identifier",
+      "description": "Unverified or pre-configured identifiers.",
+      "type": "object",
+      "properties": {
+        "identifier": { "type": "string" },
+        "classification": { "type": "string", "default": "UNVERIFIED_CONFIGURATION_IDENTIFIERS" },
+        "state": { "type": "string", "enum": ["IDENTIFIER_CONFIGURED", "IDENTITY_UNVERIFIED", "AUTHENTICATED", "AUTHORIZED", "ENDPOINT_UNCONFIGURED", "ENDPOINT_UNAVAILABLE", "ACCESS_DENIED", "NOT_AUTHORIZED", "REDACTED", "UNKNOWN"] },
+        "metadata": { "type": "object" }
+      },
+      "required": ["identifier", "state"]
+    },
+    "FederatedSearchResult": {
+      "title": "Federated Search Result",
+      "description": "Normalized result from federated providers.",
+      "type": "object",
+      "properties": {
+        "source": { "type": "string" },
+        "provider_id": { "type": "string" },
+        "query_id": { "type": "string" },
+        "retrieval_timestamp": { "type": "object" },
+        "result_id": { "type": "string" },
+        "content": { "type": "object" },
+        "source_uri": { "type": "string" },
+        "evidence_state": { "type": "string", "enum": ["OBSERVED", "VERIFIED", "DERIVED", "INFERRED", "ASSESSMENT", "DECISION_SUPPORT", "UNKNOWN"] },
+        "verification_state": { "type": "string" },
+        "authorization_state": { "type": "string" },
+        "provenance": { "type": "object" },
+        "integrity_metadata": { "type": "object" },
+        "transformations": { "type": "array" },
+        "confidence": { "type": "number" },
+        "restrictions": { "type": "array" },
+        "raw_metadata": { "type": "object" }
+      },
+      "required": ["source", "provider_id", "query_id", "retrieval_timestamp", "result_id", "content"]
     },
     "Target": {
       "title": "Intelligence Target",
@@ -70,18 +137,9 @@
       "description": "Caches Gemini CTI synthesis results to prevent quota exhaustion.",
       "type": "object",
       "properties": {
-        "context": {
-          "type": "string",
-          "description": "The search term or context used for the analysis."
-        },
-        "data": {
-          "type": "object",
-          "description": "The synthesized intelligence data."
-        },
-        "timestamp": {
-          "type": "number",
-          "description": "The epoch timestamp when the cache was created."
-        }
+        "context": { "type": "string" },
+        "data": { "type": "object" },
+        "timestamp": { "type": "number" }
       },
       "required": ["context", "data", "timestamp"]
     },
@@ -98,60 +156,50 @@
     },
     "Provenance": {
       "title": "Artifact Provenance",
-      "description": "Cryptographic and lineage metadata for intelligence artifacts.",
+      "description": "Cryptographic and lineage metadata for intelligence artifacts (T0-T1-T2 graph).",
       "type": "object",
       "properties": {
         "artifactId": { "type": "string" },
+        "parentIds": { "type": "array", "items": { "type": "string" } },
+        "transformation": { "type": "string" },
+        "level": { "type": "string", "enum": ["T0", "T1", "T2"] },
         "source": { "type": "string" },
-        "hash": { "type": "string" }
+        "hash": { "type": "string" },
+        "timestamp": { "type": "object" }
       },
-      "required": ["artifactId"]
-    },
-    "TemporalDrift": {
-      "title": "Temporal Drift",
-      "description": "Clock and timeline reconciliation logs for distributed sensors.",
-      "type": "object",
-      "properties": {
-        "status": { "type": "string" },
-        "adjustedMs": { "type": "number" },
-        "reconciledBy": { "type": "string" },
-        "reconciledAt": { "type": "object" }
-      }
-    },
-    "Hypothesis": {
-      "title": "Investigation Hypothesis",
-      "description": "Hypothesis evaluation for intelligence targets.",
-      "type": "object",
-      "properties": {
-        "title": { "type": "string" },
-        "createdBy": { "type": "string" },
-        "currentConfidence": { "type": "number" },
-        "trend": { "type": "array" }
-      },
-      "required": ["createdBy"]
+      "required": ["artifactId", "level"]
     },
     "AuditLog": {
       "title": "Security Audit Log",
-      "description": "Tamper-evident logs of system actions.",
+      "description": "Tamper-evident logs of system actions with redaction support.",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
         "action": { "type": "string" },
         "targetId": { "type": "string" },
         "details": { "type": "string" },
-        "timestamp": { "type": "object" }
+        "result": { "type": "string", "enum": ["success", "failure"] },
+        "timestamp": { "type": "object" },
+        "metadata": { "type": "object" },
+        "correlation_id": { "type": "string" },
+        "resource": { "type": "string" },
+        "decision": { "type": "string" }
       },
-      "required": ["userId", "action"]
+      "required": ["userId", "action", "result"]
     },
-    "GlobalEvent": {
-      "title": "Global Event",
-      "description": "Global or cross-target narrative broadcast events.",
+    "QuarantineEntry": {
+      "title": "Quarantine Entry",
+      "description": "Rejected artifacts with rejection metadata.",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "description": { "type": "string" },
+        "artifactId": { "type": "string" },
+        "originalHash": { "type": "string" },
+        "reason": { "type": "string" },
+        "detectorId": { "type": "string" },
+        "metadata": { "type": "object" },
         "timestamp": { "type": "object" }
-      }
+      },
+      "required": ["originalHash", "reason", "detectorId"]
     }
   },
   "firestore": {
@@ -167,21 +215,25 @@
       "schema": "UserSettings",
       "description": "Main settings document for a user."
     },
-    "/users/{userId}/ai_personas/{personaId}": {
-      "schema": "UserPersona",
-      "description": "AI-generated personas owned by the user."
-    },
     "/api_endpoints/{endpointId}": {
       "schema": "ApiEndpoint",
-      "description": "Registry of intelligence API endpoints."
+      "description": "Registry of federated API endpoints (DAER)."
+    },
+    "/authority_policies/{policyId}": {
+      "schema": "AuthorityPolicy",
+      "description": "IAMLaw authorization policies."
+    },
+    "/registry_identifiers/{identifierId}": {
+      "schema": "RegistryIdentifier",
+      "description": "Identifier registry for unverified personas."
+    },
+    "/federated_results/{resultId}": {
+      "schema": "FederatedSearchResult",
+      "description": "Normalized federated search results."
     },
     "/targets/{targetId}": {
       "schema": "Target",
       "description": "Main targets collection."
-    },
-    "/targets/{targetId}/reports/{reportId}": {
-      "schema": "IntelligenceReport",
-      "description": "Intelligence reports associated with a target."
     },
     "/intel_caches/{cacheId}": {
       "schema": "IntelCache",
@@ -195,21 +247,13 @@
       "schema": "Provenance",
       "description": "Provenance records for intelligence items."
     },
-    "/temporal_drifts/{driftId}": {
-      "schema": "TemporalDrift",
-      "description": "Timeline synchronization and drift records."
-    },
-    "/hypotheses/{hypothesisId}": {
-      "schema": "Hypothesis",
-      "description": "Hypotheses created by analysts."
-    },
     "/audit_logs/{logId}": {
       "schema": "AuditLog",
       "description": "Security audit logs."
     },
-    "/global_events/{eventId}": {
-      "schema": "GlobalEvent",
-      "description": "Global operational broadcast events."
+    "/quarantine/{quarantineId}": {
+      "schema": "QuarantineEntry",
+      "description": "Rejected artifacts in quarantine."
     }
   }
 }

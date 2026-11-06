@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Scale, Loader2, AlertTriangle, CheckCircle2, ShieldAlert, Shield, ShieldCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Scale, Loader2, AlertTriangle, CheckCircle2, ShieldAlert, Shield, ShieldCheck, Lock, ExternalLink } from 'lucide-react';
 import { motion } from 'motion/react';
 import { IntelligenceReport } from '../services/dbService';
 import { evaluateEthicalRisk } from '../services/geminiService';
@@ -29,6 +30,7 @@ interface RiskAssessment {
 }
 
 export const EthicalRiskAssessmentView: React.FC<EthicalRiskAssessmentViewProps> = ({ targetId, targetName, reports }) => {
+  const navigate = useNavigate();
   const [assessment, setAssessment] = useEnduringState<RiskAssessment | null>(`${targetId}_ethical_eval`, null);
   const [loading, setLoading] = useState(false);
 
@@ -76,14 +78,25 @@ export const EthicalRiskAssessmentView: React.FC<EthicalRiskAssessmentViewProps>
           Phase 6 - Ethical Risk Assessment
         </h3>
         
-        <button 
-          onClick={runAssessment}
-          disabled={loading || reports.length === 0}
-          className="hardware-button px-4 py-2 flex items-center gap-2"
-        >
-          {loading ? <Loader2 size={14} className="animate-spin text-blue-500" /> : <ShieldCheck size={14} className="text-blue-500" />}
-          <span className="text-[10px] font-bold uppercase tracking-widest text-white">Generate Assessment</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/methodology?tab=ethics')}
+            className="px-3 py-1.5 rounded border border-harvest-accent/30 bg-harvest-accent/10 hover:bg-harvest-accent/20 text-harvest-accent text-[10px] font-mono font-bold flex items-center gap-1.5 transition-all"
+            title="Read Master Framework Ethical AI & Responsible OSINT Guidelines"
+          >
+            <Lock size={12} />
+            <span>ETHICAL AI CHARTER</span>
+          </button>
+          
+          <button 
+            onClick={runAssessment}
+            disabled={loading || reports.length === 0}
+            className="hardware-button px-4 py-2 flex items-center gap-2"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin text-blue-500" /> : <ShieldCheck size={14} className="text-blue-500" />}
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white">Generate Assessment</span>
+          </button>
+        </div>
       </div>
 
       {!assessment && !loading && (

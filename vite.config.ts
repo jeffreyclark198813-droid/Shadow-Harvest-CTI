@@ -120,7 +120,10 @@ function createViteConfig(mode: string): UserConfig {
   };
 }
 
-export default defineConfig(({ mode }) => createViteConfig(mode));Atomic configuration model
+export default defineConfig(({ mode }) => createViteConfig(mode));
+
+/*
+Atomic configuration model
 
 Component	Existing behavior	Refactored behavior	Engineering consequence
 
@@ -168,13 +171,13 @@ define: {
 The important architectural boundary is therefore:
 
 .env / environment
-        ↓
+        ▼
 Vite build configuration
-        ↓
+        ▼
 compile-time substitution
-        ↓
+        ▼
 application bundle
-        ↓
+        ▼
 browser
 
 If the value is a privileged API credential, the credential has crossed from a server/build environment into a client-distributed artifact.
@@ -223,21 +226,21 @@ node_modules?
          yes            no
           │              │
       firebase       @google/genai?
-                         │
-                    ┌────┴────┐
-                   yes        no
-                    │          │
-                  genai    recharts/d3?
-                              │
-                         ┌────┴────┐
-                        yes        no
-                         │          │
-                       charts   html2canvas?
-                                    │
-                               ┌────┴────┐
-                              yes        no
-                               │          │
-                         html2canvas   vendor
+                          │
+                     ┌────┴────┐
+                    yes        no
+                     │          │
+                   genai    recharts/d3?
+                               │
+                          ┌────┴────┐
+                         yes        no
+                          │          │
+                        charts   html2canvas?
+                                     │
+                                ┌────┴────┐
+                               yes        no
+                                │          │
+                          html2canvas   vendor
 
 This gives the configuration an explicit dependency-partitioning policy rather than leaving all third-party dependencies to a single implicit bundle.
 
@@ -262,11 +265,11 @@ The resulting application artifact is distributed to the client.
 Accordingly, the configuration should distinguish:
 
 PUBLIC CONFIGURATION
-    ↓
+    ▼
 safe for browser distribution
 
 PRIVATE CONFIGURATION
-    ↓
+    ▼
 server/serverless boundary only
 
 A production architecture should therefore preferably become:
@@ -363,3 +366,4 @@ Before treating the configuration as production-ready, validate at least these i
 The critical distinction is configuration correctness versus artifact correctness: a Vite configuration can be syntactically valid and produce a successful build while still embedding credentials or producing an undesirable client bundle. The final validation target should therefore be the generated artifact itself, not merely vite.config.ts.
 
 Bottom line: the supplied configuration already has a coherent dependency-splitting strategy. The principal architectural risk is the explicit compile-time injection of GEMINI_API_KEY into client code. The refactor above preserves that existing interface for compatibility while making the boundary explicit; for a production deployment, the next modernization step should be moving privileged Gemini calls behind a server/serverless boundary rather than attempting to further optimize the Vite configuration itself.
+*/

@@ -342,7 +342,7 @@ export const PersonaProfilingView: React.FC<PersonaProfilingViewProps> = ({
                           <div className="bg-black/30 p-3.5 rounded border border-[#222]">
                             <p className="text-[9px] text-gray-500 uppercase font-semibold mb-2">PGP Key Fingerprints</p>
                             <div className="space-y-1">
-                              {selectedProfile.identifiers.pgpFingerprints.map((f, i) => (
+                              { (selectedProfile.identifiers?.pgpFingerprints || []).map((f, i) => (
                                 <p key={i} className="text-[10px] font-mono text-gray-300 break-all bg-[#141414] p-1.5 rounded">
                                   {maskIdentifier('pgp', f)}
                                 </p>

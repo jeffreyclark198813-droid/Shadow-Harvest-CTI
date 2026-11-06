@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Shield, Terminal, Zap, User, Book, Cpu, Globe, Lock } from 'lucide-react';
 import { UserPersona, saveUserPersona, calculateAnonymityScore, saveUserSettings } from '../services/dbService';
 import { auth } from '../firebase';
+import { AuditService } from '../services/AuditService';
 
 interface CharacterCreationProps {
   onComplete: () => void;
@@ -66,17 +67,33 @@ export const CharacterCreation: React.FC<CharacterCreationProps> = ({ onComplete
 
     const anonymityScore = calculateAnonymityScore(profile.privacySettings!);
 
-    const personaId = await saveUserPersona({
-      ...profile,
-      userId: user.uid,
-      anonymityScore
-    } as UserPersona);
+    try {
+      const personaId = await saveUserPersona({
+        ...profile,
+        userId: user.uid,
+        anonymityScore
+      } as UserPersona);
 
-    if (personaId) {
-      await saveUserSettings(user.uid, { activePersonaId: personaId });
+      if (personaId) {
+        await saveUserSettings(user.uid, { activePersonaId: personaId });
+        await AuditService.logOperation(
+          'PERSONA_INITIALIZATION',
+          `Analyst initialized with callsign: ${profile.name}`,
+          'success',
+          personaId,
+          { stats: profile.stats }
+        );
+      }
+      
+      onComplete();
+    } catch (error: any) {
+      console.error('[CharacterCreation] Submission failed:', error);
+      await AuditService.logOperation(
+        'PERSONA_INITIALIZATION',
+        `Failed to initialize analyst ${profile.name}: ${error.message}`,
+        'failure'
+      );
     }
-    
-    onComplete();
   };
 
   return (

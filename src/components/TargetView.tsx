@@ -48,7 +48,7 @@ import { IdentityCorrelatorView } from './IdentityCorrelatorView';
 import { DarkWebScannerView } from './DarkWebScannerView';
 import { ReconScanView } from './ReconScanView';
 import { generateStixBundle, downloadStixJson } from '../utils/stixExport';
-import { auth, db, doc, onSnapshot, updateDoc } from '../firebase';
+import { auth, db, doc, onSnapshot, updateDoc, OperationType, handleFirestoreError } from '../firebase';
 import ReactMarkdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserSettings } from '../services/dbService';
@@ -64,6 +64,62 @@ interface TargetViewProps {
   activePersona: UserPersona;
   settings: UserSettings | null;
 }
+
+export const tabCategories = [
+  {
+    id: 'op-cti',
+    label: 'Operational CTI',
+    items: [
+      { id: 'reports', label: 'Phase Feed', icon: Radio },
+      { id: 'monitoring', label: 'Live Telemetry', icon: Activity },
+      { id: 'recon', label: 'Recon Ingestion', icon: Server },
+      { id: 'dark_web', label: 'Dark Web Monitor', icon: Globe },
+    ]
+  },
+  {
+    id: 'graph-identity',
+    label: 'Graph & Identity',
+    items: [
+      { id: 'graph', label: 'Intelligence Graph', icon: Database },
+      { id: 'resolve', label: 'Entity Resolution', icon: GitMerge },
+      { id: 'link_personas', label: 'IP-ASN Linker', icon: LinkIcon },
+      { id: 'identity_correlator', label: 'Identity Correlator', icon: Network },
+    ]
+  },
+  {
+    id: 'behavior-threat',
+    label: 'Behavior & Threat',
+    items: [
+      { id: 'threat', label: 'Threat Assessments', icon: Shield },
+      { id: 'profiling', label: 'Stylometry & Profile', icon: User },
+      { id: 'osint', label: 'OSINT Profiles', icon: Globe },
+      { id: 'attribution', label: 'Origin Attribution', icon: Zap },
+    ]
+  },
+  {
+    id: 'code-tech',
+    label: 'Code & Tech Signatures',
+    items: [
+      { id: 'code', label: 'YARA & Code Scanner', icon: Code2 },
+      { id: 'financial', label: 'Ledger Analytics', icon: Bitcoin },
+      { id: 'infrastructure_fp', label: 'Infra Fingerprints', icon: Network },
+      { id: 'actor_template', label: 'Actor Dossier', icon: FileText },
+    ]
+  },
+  {
+    id: 'ai-audit',
+    label: 'AI & Audit Control',
+    items: [
+      { id: 'synthesis', label: 'AI Intel Synthesis', icon: Cpu },
+      { id: 'adversarial', label: 'Adversarial Emulation', icon: ShieldAlert },
+      { id: 'fictional_personas', label: 'Fictional Profiler', icon: User },
+      { id: 'anomalies', label: 'Anomaly Engine', icon: EyeOff },
+      { id: 'ethics', label: 'Ethical Audit', icon: Scale },
+      { id: 'visuals', label: 'Dossier Metrics', icon: BarChart3 },
+      { id: 'personas', label: 'Analyst Persona', icon: User },
+    ]
+  }
+];
 
 export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings }) => {
   const { id } = useParams<{ id: string }>();
@@ -85,15 +141,25 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
   const [generatingEvent, setGeneratingEvent] = useState(false);
   const [graphData, setGraphData] = useEnduringState<{ nodes: any[], edges: any[] }>(`${id}_graphData`, { nodes: [], edges: [] });
   const [correlationData, setCorrelationData] = useEnduringState<CorrelationData | undefined>(`${id}_correlationData`, undefined);
-  const [activeTab, setActiveTabRaw] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'link_personas' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics' | 'adversarial' | 'infrastructure_fp' | 'actor_template' | 'fictional_personas' | 'recon'>(() => {
+  const [activeTab, setActiveTabRaw] = useState<'reports' | 'graph' | 'resolve' | 'code' | 'financial' | 'threat' | 'monitoring' | 'osint' | 'profiling' | 'link_personas' | 'attribution' | 'personas' | 'synthesis' | 'visuals' | 'anomalies' | 'ethics' | 'adversarial' | 'infrastructure_fp' | 'actor_template' | 'fictional_personas' | 'recon' | 'identity_correlator' | 'dark_web'>(() => {
     // Try to load cached tab from session storage
     const cached = sessionStorage.getItem(`target_tab_${id}`);
     return (cached as any) || 'reports';
   });
 
+  const [activeCategory, setActiveCategory] = useState<string>(() => {
+    const currentTab = sessionStorage.getItem(`target_tab_${id}`) || 'reports';
+    const found = tabCategories.find(cat => cat.items.some(item => item.id === currentTab));
+    return found ? found.id : 'op-cti';
+  });
+
   const setActiveTab = (tab: typeof activeTab) => {
     setActiveTabRaw(tab);
     sessionStorage.setItem(`target_tab_${id}`, tab);
+    const found = tabCategories.find(cat => cat.items.some(item => item.id === tab));
+    if (found) {
+      setActiveCategory(found.id);
+    }
   };
 
   const selectedPersona = personas.find(p => p.id === selectedPersonaId);
@@ -116,6 +182,8 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
       if (doc.exists()) {
         setTarget({ id: doc.id, ...doc.data() } as Target);
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `targets/${id}`);
     });
 
     const unsubReports = subscribeToReports(id, setReports);
@@ -254,18 +322,25 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
       notify({ type: 'success', title: 'Analysis Complete', message: 'Intelligence gathering and graph resolution finished.' });
 
     } catch (error: any) {
-      console.error("Analysis failed:", error);
-      notify({ type: 'error', title: 'Analysis Failed', message: error?.message || 'An unexpected error occurred.' });
-      
-      const errorString = JSON.stringify(error).toLowerCase();
+      const errorString = (error?.message || JSON.stringify(error)).toLowerCase();
       const isRateLimit = 
         errorString.includes('429') || 
         errorString.includes('resource_exhausted') ||
         errorString.includes('quota exceeded') ||
+        errorString.includes('exceeded quota') ||
+        errorString.includes('quota') ||
         errorString.includes('surpassed the quota') ||
         error?.status === 'RESOURCE_EXHAUSTED' ||
         error?.code === 429 ||
         error?.error?.code === 429;
+
+      if (isRateLimit) {
+        console.warn("Analysis throttled (quota exceeded):", error);
+        notify({ type: 'warning', title: 'Analysis Throttled', message: 'The intelligence engine is throttled due to quota constraints.' });
+      } else {
+        console.error("Analysis failed:", error);
+        notify({ type: 'error', title: 'Analysis Failed', message: error?.message || 'An unexpected error occurred.' });
+      }
       
       await addReport({
         targetId: id,
@@ -297,7 +372,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         unlockAchievement(auth.currentUser.uid, 'threat_hunter');
       }
     } catch (error) {
-      console.error("Threat assessment failed:", error);
+      console.warn("Threat assessment failed (standard expected fallback):", error);
     } finally {
       setAnalyzing(false);
     }
@@ -314,7 +389,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         ...event
       });
     } catch (error) {
-      console.error("Monitoring cycle failed:", error);
+      console.warn("Monitoring cycle failed (standard expected fallback):", error);
     } finally {
       setAnalyzing(false);
     }
@@ -332,7 +407,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         ...osint
       });
     } catch (error) {
-      console.error("Persona profiling failed:", error);
+      console.warn("Persona profiling failed (standard expected fallback):", error);
     } finally {
       setAnalyzing(false);
     }
@@ -350,7 +425,7 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
         ...profile
       });
     } catch (error) {
-      console.error("Advanced persona profiling failed:", error);
+      console.warn("Advanced persona profiling failed (standard expected fallback):", error);
     } finally {
       setAnalyzing(false);
     }
@@ -833,45 +908,89 @@ export const TargetView: React.FC<TargetViewProps> = ({ activePersona, settings 
       </header>
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden" id="report-container-pdf">
+        {/* Desktop Nested Sub-Sidebar Navigation */}
+        <aside className="hidden lg:flex flex-col w-64 bg-harvest-card/40 border-r border-harvest-border h-full overflow-y-auto shrink-0 scrollbar-thin select-none">
+          <div className="p-4 space-y-6">
+            {tabCategories.map((cat) => (
+              <div key={cat.id} className="space-y-1.5">
+                <h3 className="mono-label px-2 text-[8px] text-gray-500 font-bold tracking-widest border-b border-white/5 pb-1 select-none">
+                  {cat.label}
+                </h3>
+                <div className="space-y-0.5">
+                  {cat.items.map((tab) => {
+                    const isCurrent = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id as any)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all relative ${
+                          isCurrent
+                            ? 'text-harvest-accent font-semibold bg-harvest-accent/5 border border-harvest-accent/15'
+                            : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.01] border border-transparent'
+                        }`}
+                      >
+                        <tab.icon size={13} className={isCurrent ? 'text-harvest-accent animate-pulse' : 'text-gray-600'} />
+                        <span className="text-[10px] uppercase tracking-wider truncate">{tab.label}</span>
+                        {isCurrent && (
+                          <span className="absolute right-3 w-1 h-1 rounded-full bg-harvest-accent shadow-[0_0_8px_#00ff00]" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Action Scroller */}
-          <div className="flex border-b border-harvest-border bg-harvest-bg/50 backdrop-blur-sm overflow-x-auto no-scrollbar scroll-smooth px-2">
-            {[
-              { id: 'reports', label: 'Feed', icon: Radio },
-              { id: 'graph', label: 'Graph', icon: Database },
-              { id: 'resolve', label: 'Resolve', icon: GitMerge },
-              { id: 'code', label: 'Code', icon: Code2 },
-              { id: 'financial', label: 'Ledger', icon: Bitcoin },
-              { id: 'threat', label: 'Threat', icon: Shield },
-              { id: 'monitoring', label: 'Live', icon: Activity },
-              { id: 'osint', label: 'OSINT', icon: Globe },
-              { id: 'profiling', label: 'Profile', icon: User },
-              { id: 'link_personas', label: 'Linker', icon: LinkIcon },
-              { id: 'attribution', label: 'Origin', icon: Zap },
-              { id: 'synthesis', label: 'Synthesis', icon: Cpu },
-              { id: 'visuals', label: 'Metrics', icon: BarChart3 },
-              { id: 'anomalies', label: 'Alerts', icon: EyeOff },
-              { id: 'ethics', label: 'Ethics', icon: Scale },
-              { id: 'adversarial', label: 'Adversarial', icon: ShieldAlert },
-              { id: 'infrastructure_fp', label: 'Infra FP', icon: Network },
-              { id: 'actor_template', label: 'Actor Profile', icon: FileText },
-              { id: 'fictional_personas', label: 'Fictional Gen', icon: User },
-              { id: 'identity_correlator', label: 'Identity Correlator', icon: Network },
-              { id: 'dark_web', label: 'Dark Web Scan', icon: Globe },
-              { id: 'recon', label: 'Recon', icon: Server },
-            ].map((tab) => (
-              <button 
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-4 text-[10px] font-bold uppercase tracking-widest transition-all shrink-0 border-b-2 ${
-                  activeTab === tab.id ? 'border-harvest-accent text-white bg-harvest-accent/5' : 'border-transparent text-gray-500 hover:text-gray-300'
-                }`}
-              >
-                <tab.icon size={14} />
-                {tab.label}
-              </button>
-            ))}
+          {/* Mobile Categories & Sub-tabs (lg:hidden) */}
+          <div className="lg:hidden flex flex-col border-b border-harvest-border bg-harvest-bg/50 backdrop-blur-sm shrink-0">
+            {/* Category Level */}
+            <div className="flex border-b border-harvest-border/30 overflow-x-auto no-scrollbar scroll-smooth px-2 py-2 gap-1.5 bg-black/20">
+              {tabCategories.map((cat) => {
+                const isSelected = activeCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => {
+                      setActiveCategory(cat.id);
+                      // Set active tab to first item in the category to anticipate user needs
+                      setActiveTab(cat.items[0].id as any);
+                    }}
+                    className={`px-3 py-1.5 text-[9px] font-mono font-bold uppercase tracking-wider rounded-lg transition-all shrink-0 border ${
+                      isSelected 
+                        ? 'bg-harvest-accent/10 border-harvest-accent/40 text-harvest-accent' 
+                        : 'bg-white/5 border-transparent text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Sub-Tab Level */}
+            <div className="flex overflow-x-auto no-scrollbar scroll-smooth px-3 py-2.5 gap-1.5 bg-black/40">
+              {tabCategories.find(c => c.id === activeCategory)?.items.map((tab) => {
+                const isCurrent = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-all shrink-0 rounded-lg border ${
+                      isCurrent 
+                        ? 'bg-white/5 border-harvest-border text-white' 
+                        : 'border-transparent text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    <tab.icon size={11} className={isCurrent ? 'text-harvest-accent' : ''} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex-1 overflow-auto bg-harvest-bg p-4 sm:p-6">

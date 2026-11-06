@@ -5,10 +5,15 @@ export type ProvenanceState = 'ingestion' | 'normalization' | 'validation' | 'in
 export interface ArtifactProvenance {
   id?: string;
   artifactId: string;
-  state: ProvenanceState;
-  progress: number; // 0-100
-  updatedAt: Timestamp;
-  history: {
+  parentIds: string[];
+  transformation: string;
+  level: 'T0' | 'T1' | 'T2';
+  source: string;
+  hash: string;
+  timestamp: Timestamp;
+  state?: ProvenanceState;
+  progress?: number;
+  history?: {
     state: ProvenanceState;
     timestamp: Timestamp;
     details: string;
@@ -79,6 +84,18 @@ export interface AuditLogEntry {
   action: string;
   targetId?: string;
   details: string;
+  result: 'success' | 'failure';
+  timestamp: Timestamp;
+  metadata?: any;
+}
+
+export interface QuarantineEntry {
+  id?: string;
+  artifactId?: string;
+  originalHash: string;
+  reason: string;
+  detectorId: string;
+  metadata: any;
   timestamp: Timestamp;
 }
 

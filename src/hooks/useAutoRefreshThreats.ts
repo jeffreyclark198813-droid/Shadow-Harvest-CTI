@@ -52,18 +52,17 @@ export function useAutoRefreshThreats({
     setSecondsLeft(intervalSeconds);
 
     const timer = setInterval(() => {
-      setSecondsLeft(prev => {
-        if (prev <= 1) {
-          // Trigger refresh
-          manualRefresh();
-          return intervalSeconds;
-        }
-        return prev - 1;
-      });
+      setSecondsLeft(prev => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [intervalSeconds, enabled, manualRefresh]);
+  }, [intervalSeconds, enabled]);
+
+  useEffect(() => {
+    if (enabled && intervalSeconds > 0 && secondsLeft === 0) {
+      manualRefresh();
+    }
+  }, [secondsLeft, enabled, intervalSeconds, manualRefresh]);
 
   return {
     secondsLeft,
