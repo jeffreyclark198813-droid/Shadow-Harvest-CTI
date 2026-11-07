@@ -358,7 +358,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                         </div>
                         <div className="bg-harvest-accent/5 border border-harvest-accent/20 p-4 rounded-lg flex flex-col h-[200px] overflow-y-auto">
                           <span className="text-[8px] text-harvest-accent font-mono uppercase font-bold mb-2 tracking-widest block border-b border-harvest-accent/20 pb-1">Expanded / Reconstructed Target</span>
-                          <p className="text-[10px] font-mono text-harvest-accent/90 leading-relaxed whitespace-pre-wrap">{result.unabridgedReport.slice(0, 150)}...</p>
+                          <p className="text-[10px] font-mono text-harvest-accent/90 leading-relaxed whitespace-pre-wrap">{(result?.unabridgedReport || "").slice(0, 150)}...</p>
                         </div>
                       </div>
 
@@ -368,20 +368,20 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                           Scientific Investigation Narrative
                         </h4>
                         <div className="text-[11px] font-mono text-gray-300 leading-relaxed space-y-3 whitespace-pre-wrap">
-                          {result.unabridgedReport}
+                          {result?.unabridgedReport}
                         </div>
                       </div>
                     </div>
                   )}
 
                   {/* Tab 2: Atomic Metadata */}
-                  {activeSubTab === 'atomic' && (
+                  {activeSubTab === 'atomic' && result && (
                     <div className="space-y-6">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-lg text-center space-y-2">
                           <span className="text-[8px] text-gray-500 font-mono uppercase">Bayesian Confidence</span>
                           <div className="text-3xl font-black text-harvest-accent font-mono">
-                            {result.atomicContext.confidenceLevel}
+                            {result?.atomicContext?.confidenceLevel}
                           </div>
                           <p className="text-[8px] text-gray-600 font-mono">MULTI-VECTOR SCORE</p>
                         </div>
@@ -389,7 +389,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                         <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-lg text-center space-y-2">
                           <span className="text-[8px] text-gray-500 font-mono uppercase">Information Entropy</span>
                           <div className="text-3xl font-black text-white font-mono">
-                            {(result.atomicContext.entropyScore * 10).toFixed(2)}
+                            {( (result?.atomicContext?.entropyScore || 0) * 10).toFixed(2)}
                           </div>
                           <p className="text-[8px] text-gray-600 font-mono">SHANNON RATING</p>
                         </div>
@@ -397,7 +397,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                         <div className="bg-zinc-950 border border-zinc-800 p-4 rounded-lg text-center space-y-2">
                           <span className="text-[8px] text-gray-500 font-mono uppercase">Deduplication Overlap</span>
                           <div className="text-3xl font-black text-emerald-500 font-mono">
-                            {((result.deduplicationDetails.similarityScore) * 100).toFixed(0)}%
+                            {(((result?.deduplicationDetails?.similarityScore) || 0) * 100).toFixed(0)}%
                           </div>
                           <p className="text-[8px] text-gray-600 font-mono">DATABASE MATCHER</p>
                         </div>
@@ -406,7 +406,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                       <div className="bg-zinc-950 border border-zinc-800 p-5 rounded-lg space-y-4">
                         <h4 className="text-[10px] font-bold text-white uppercase tracking-wider border-b border-zinc-800 pb-2">Verification Checklist</h4>
                         <div className="space-y-3">
-                          {result.atomicContext.verificationCriteria.map((criteria, i) => (
+                          {result?.atomicContext?.verificationCriteria?.map((criteria, i) => (
                             <div key={i} className="flex items-center gap-3 text-[10px] font-mono text-gray-300">
                               <CheckCircle2 size={12} className="text-emerald-500" />
                               <span className="uppercase tracking-wider">{criteria.replace(/_/g, ' ')}</span>
@@ -418,8 +418,8 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                       <div className="bg-zinc-950 border border-zinc-800 p-5 rounded-lg space-y-3">
                         <h4 className="text-[10px] font-bold text-white uppercase tracking-wider">Provenance & Collection Trace</h4>
                         <div className="space-y-1.5 text-[10px] font-mono text-gray-400">
-                          <div><span className="text-gray-600 mr-2">SOURCE ATTR:</span> {result.atomicContext.provenance}</div>
-                          <div><span className="text-gray-600 mr-2">TIMESTAMP:</span> {result.atomicContext.timestampUtc}</div>
+                          <div><span className="text-gray-600 mr-2">SOURCE ATTR:</span> {result?.atomicContext?.provenance}</div>
+                          <div><span className="text-gray-600 mr-2">TIMESTAMP:</span> {result?.atomicContext?.timestampUtc}</div>
                           <div><span className="text-gray-600 mr-2">IDENTIFIER:</span> REDACTED_API_KEY_IDENTITY_GCP</div>
                           <div><span className="text-gray-600 mr-2">STATUS CODE:</span> 200 OK (STOCHASTIC_EXPANSION)</div>
                         </div>
@@ -428,9 +428,9 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                   )}
 
                   {/* Tab 3: Resolved Entities */}
-                  {activeSubTab === 'entities' && (
+                  {activeSubTab === 'entities' && result && (
                     <div className="space-y-4">
-                      {result.resolvedEntities.map((entity, i) => (
+                      {result?.resolvedEntities?.map((entity, i) => (
                         <div key={i} className="bg-zinc-950 border border-zinc-800 p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
                           <div className="space-y-2 max-w-xl">
                             <div className="flex items-center gap-3">
@@ -464,7 +464,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                           <div className="flex flex-col items-end shrink-0 gap-2">
                             <div className="text-right">
                               <span className="text-[8px] text-gray-500 font-mono block">CENTRALITY</span>
-                              <span className="text-[10px] font-bold font-mono text-harvest-accent">{(entity.centrality * 100).toFixed(0)}% Link Ratio</span>
+                              <span className="text-[10px] font-bold font-mono text-harvest-accent">{( (entity.centrality || 0) * 100).toFixed(0)}% Link Ratio</span>
                             </div>
                             <button
                               onClick={() => handlePublishEntity(entity)}
@@ -491,7 +491,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                         </div>
                       ))}
 
-                      {result.resolvedEntities.length === 0 && (
+                      {(!result?.resolvedEntities || result.resolvedEntities.length === 0) && (
                         <div className="text-center py-12 text-zinc-600 font-mono text-[10px]">
                           NO DISCRETE ENTITIES RESOLVED IN THIS CAMPAIGN
                         </div>
@@ -500,7 +500,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                   )}
 
                   {/* Tab 4: CTI Schema (STIX 2.1) */}
-                  {activeSubTab === 'schema' && (
+                  {activeSubTab === 'schema' && result && (
                     <div className="space-y-4">
                       <div className="flex justify-between items-center bg-zinc-950 border border-zinc-800 px-4 py-2 rounded-t-lg">
                         <span className="text-[9px] font-mono text-zinc-500 font-bold tracking-widest uppercase">STIX 2.1 JSON Schema Bundle</span>
@@ -522,7 +522,7 @@ export const IntelligenceRestorationView: React.FC<IntelligenceRestorationViewPr
                         </button>
                       </div>
                       <pre className="bg-black border border-t-0 border-zinc-800 p-4 rounded-b-lg font-mono text-[9px] text-gray-400 overflow-x-auto max-h-[350px] leading-relaxed select-all">
-                        {JSON.stringify(result.stixSchema, null, 2)}
+                        {JSON.stringify(result?.stixSchema, null, 2)}
                       </pre>
                     </div>
                   )}
